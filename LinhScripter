@@ -1,0 +1,505 @@
+print("Hello, BabyBoi <3")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
+local lp = Players.LocalPlayer
+local pg = lp:WaitForChild("PlayerGui")
+
+local function C(inst, props, parent)
+    local o = Instance.new(inst)
+    if props then for k,v in pairs(props) do o[k]=v end end
+    if parent then o.Parent = parent end
+    return o
+end
+
+local Themes = {
+    Pink = {
+        Primary = Color3.fromRGB(255, 187, 225),
+        Accent = Color3.fromRGB(198, 117, 225),
+        Text = Color3.fromRGB(50, 50, 50),
+        ButtonText = Color3.fromRGB(240, 240, 240)
+    },
+    Dark = {
+        Primary = Color3.fromRGB(0, 0, 0),
+        Accent = Color3.fromRGB(177, 175, 182),
+        Text = Color3.fromRGB(255, 255, 255),
+        ButtonText = Color3.fromRGB(220, 220, 220)
+    },
+    Blue = {
+        Primary = Color3.fromRGB(0, 120, 215),
+        Accent = Color3.fromRGB(0, 99, 177),
+        Text = Color3.fromRGB(255, 255, 255),
+        ButtonText = Color3.fromRGB(230, 230, 230)
+    }
+}
+
+local Fonts = {
+    Enum.Font.Gotham, Enum.Font.GothamBold, Enum.Font.Ubuntu, Enum.Font.Roboto, Enum.Font.FredokaOne
+}
+
+local win = C("Frame", {
+    Name="Window",
+    Size=UDim2.fromOffset(400, 480),
+    Position=UDim2.fromScale(0.08, 0.2),
+    BackgroundColor3=Color3.fromRGB(30,30,35),
+    BorderSizePixel=0,
+    Active=true
+}, C("ScreenGui", {Name="MenuUITabs", ResetOnSpawn=false}, pg))
+C("UICorner", {CornerRadius=UDim.new(0,14)}, win)
+local stroke = C("UIStroke", {ApplyStrokeMode=Enum.ApplyStrokeMode.Border, Thickness=2, Color=Color3.fromRGB(90,90,100)}, win)
+
+-- Header
+local header = C("Frame", {
+    Size=UDim2.new(1,0,0,42),
+    BackgroundTransparency=0.15,
+    BackgroundColor3=Color3.fromRGB(50,50,60),
+    BorderSizePixel=0
+}, win)
+C("UICorner", {CornerRadius=UDim.new(0,14)}, header)
+local title = C("TextLabel", {
+    Name="Title",
+    Size=UDim2.new(1,-100,1,0),
+    Position=UDim2.fromOffset(14,0),
+    BackgroundTransparency=1,
+    Text="Advanced Menu UI",
+    TextColor3=Color3.fromRGB(235,235,240),
+    Font=Enum.Font.GothamBold,
+    TextSize=18,
+    TextXAlignment=Enum.TextXAlignment.Left
+}, header)
+local toggleBtn = C("TextButton", {
+    Name="ToggleBtn",
+    Size=UDim2.fromOffset(80,26),
+    Position=UDim2.new(1,-90,0.5,-13),
+    BackgroundColor3=Color3.fromRGB(70,70,80),
+    BorderSizePixel=0,
+    Text="Hide",
+    TextColor3=Color3.fromRGB(235,235,240),
+    Font=Enum.Font.GothamMedium,
+    TextSize=14,
+    AutoButtonColor=false
+}, header)
+C("UICorner", {CornerRadius=UDim.new(0,10)}, toggleBtn)
+
+-- Tabs
+local tabs = {"Main", "Misc"}
+local tabHolder = C("Frame", {Parent=win, Size=UDim2.new(1,-20,0,36), Position=UDim2.new(0,10,0,48), BackgroundTransparency=1})
+local tabButtons = {}
+local tabContents = {}
+local currentTab = 1
+for i, name in ipairs(tabs) do
+    local btn = C("TextButton", {
+        Parent=tabHolder, Size=UDim2.new(0,100,0,28), Position=UDim2.new(0,(i-1)*106,0,4),
+        BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0,
+        Text=name, TextColor3=Color3.fromRGB(235,235,240),
+        Font=Enum.Font.GothamBold, TextSize=14, AutoButtonColor=false
+    })
+    C("UICorner", {CornerRadius=UDim.new(0,8)}, btn)
+    tabButtons[i] = btn
+    tabContents[i] = C("Frame", {
+        Parent=win,
+        Size=UDim2.new(1,-20,1,-98),
+        Position=UDim2.new(0,10,0,90),
+        BackgroundTransparency=1,
+        Visible = (i==currentTab)
+    })
+    C("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        Padding = UDim.new(0,8),
+        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+        SortOrder = Enum.SortOrder.LayoutOrder
+    }, tabContents[i])
+    btn.MouseButton1Click:Connect(function()
+        currentTab = i
+        for j=1,#tabs do
+            tabContents[j].Visible = (j==currentTab)
+            tabButtons[j].BackgroundColor3 = (j==currentTab) and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80)
+        end
+    end)
+end
+tabButtons[1].BackgroundColor3 = Color3.fromRGB(130,130,220)
+
+-- Row helper cho từng tab
+local function TabRow(tabIndex, labelText)
+    local row = C("Frame", {Size=UDim2.new(1,0,0,36), BackgroundTransparency=1}, tabContents[tabIndex])
+    local lbl = C("TextLabel", {Size=UDim2.new(0,120,1,0), BackgroundTransparency=1, Text=labelText, TextColor3=Color3.fromRGB(220,220,230), Font=Enum.Font.Gotham, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left}, row)
+    return row, lbl
+end
+
+-- Theme
+local themeRow = TabRow(1, "Theme")
+local themeHolder = C("Frame", {Parent=themeRow, Size=UDim2.new(1,-130,1,0), Position=UDim2.new(0,130,0,0), BackgroundTransparency=1})
+local transRow = TabRow(1, "Transparency")
+local transBtn = C("TextButton", {
+    Parent=transRow, Size=UDim2.new(0,120,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="OFF",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, transBtn)
+local flow = C("UIGridLayout", {
+    CellSize = UDim2.fromOffset(60,26),
+    CellPadding = UDim2.fromOffset(6,6),
+    FillDirectionMaxCells = 5,
+    SortOrder = Enum.SortOrder.LayoutOrder
+}, themeHolder)
+local currentTheme = "Dark"
+local function applyTheme(name)
+    local t = Themes[name] or Themes.Dark
+    currentTheme = name
+    win.BackgroundColor3 = t.Primary
+    header.BackgroundColor3 = t.Accent
+    title.TextColor3 = t.Text
+    toggleBtn.TextColor3 = t.Text
+    stroke.Color = t.Accent:Lerp(Color3.new(1,1,1), 0.15)
+
+for _, v in pairs(win:GetDescendants()) do
+        if v:IsA("TextButton") then
+            v.TextColor3 = t.ButtonText
+        elseif v:IsA("TextLabel") then
+            v.TextColor3 = t.Text
+        end
+    end
+end
+
+for name,_ in pairs(Themes) do
+    local b = C("TextButton", {
+        Name="Theme_"..name,
+        Text=name,
+        BackgroundColor3=Color3.fromRGB(70,70,80),
+        TextColor3=Color3.fromRGB(235,235,240),
+        Font=Enum.Font.GothamMedium,
+        TextSize=14,
+        BorderSizePixel=0
+    }, themeHolder)
+    C("UICorner", {CornerRadius=UDim.new(0,8)}, b)
+    b.MouseEnter:Connect(function()
+        TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(95,95,110)}):Play()
+    end)
+    b.MouseLeave:Connect(function()
+        TweenService:Create(b, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(70,70,80)}):Play()
+    end)
+    b.MouseButton1Click:Connect(function()
+        applyTheme(name)
+    end)
+end
+
+local transRow = TabRow(1, "Transparency")
+local slider = C("Frame", {Parent=transRow, Size=UDim2.new(1,-130,1,0), Position=UDim2.new(0,130,0,0), BackgroundTransparency=1})
+local bar = C("Frame", {Parent=slider, Size=UDim2.new(1,0,0,6), Position=UDim2.new(0,0,0.5,-3), BackgroundColor3=Color3.fromRGB(90,90,100), BorderSizePixel=0})
+C("UICorner", {CornerRadius=UDim.new(1,0)}, bar)
+local knob = C("Frame", {Parent=slider, Size=UDim2.fromOffset(14,14), Position=UDim2.new(0,0,0.5,-7), BackgroundColor3=Color3.fromRGB(230,230,235), BorderSizePixel=0})
+C("UICorner", {CornerRadius=UDim.new(1,0)}, knob)
+local dragging = false
+local function setAlphaFromX(x)
+    local rel = math.clamp((x - bar.AbsolutePosition.X)/bar.AbsoluteSize.X, 0, 1)
+    knob.Position = UDim2.new(rel, -7, 0.5, -7)
+    local alpha = rel * 0.6
+    win.BackgroundTransparency = alpha
+    header.BackgroundTransparency = math.clamp(alpha - 0.1, 0, 1)
+    stroke.Thickness = 2 * (1 - rel*0.6) + 0.5
+end
+knob.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        setAlphaFromX(i.Position.X)
+    end
+end)
+bar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        setAlphaFromX(i.Position.X)
+        dragging = true
+    end
+end)
+
+local fontRow = TabRow(1, "Font")
+local fontBtn = C("TextButton", {
+    Parent=fontRow, Size=UDim2.new(0,150,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="Next Font",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamMedium, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, fontBtn)
+local sizeRow = TabRow(1, "Size")
+local sizeBtn = C("TextButton", {
+    Parent=sizeRow, Size=UDim2.new(0,150,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="Text +2",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamMedium, TextSize=13
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, sizeBtn)
+local fontIdx, textSize = 1, 18
+local function applyFont()
+    title.Font = Fonts[fontIdx]
+end
+fontBtn.MouseButton1Click:Connect(function()
+    fontIdx = fontIdx % #Fonts + 1
+    applyFont()
+end)
+sizeBtn.MouseButton1Click:Connect(function()
+    textSize = math.clamp(textSize + 2, 12, 28)
+    title.TextSize = textSize
+end)
+
+local speedOn = false
+local speedValue = 100
+local speedRow = TabRow(1, "Speed")
+local speedBtn = C("TextButton", {
+    Parent=speedRow, Size=UDim2.new(0,72,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="OFF",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, speedBtn)
+local speedNum = C("TextLabel", {
+    Parent=speedRow, Size=UDim2.new(0,50,1,0), Position=UDim2.new(0,210,0,0),
+    BackgroundTransparency=1, Text=tostring(speedValue),
+    TextColor3=Color3.fromRGB(220,220,230), Font=Enum.Font.Gotham, TextSize=14
+})
+speedBtn.MouseButton1Click:Connect(function()
+    speedOn = not speedOn
+    speedBtn.Text = speedOn and "ON" or "OFF"
+    TweenService:Create(speedBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = speedOn and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80)
+    }):Play()
+    if lp.Character and lp.Character:FindFirstChild("Humanoid") then
+        lp.Character.Humanoid.WalkSpeed = speedOn and speedValue or 16
+    end
+end)
+local plusBtn = C("TextButton", {
+    Parent=speedRow, Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,265,0,0),
+    BackgroundColor3=Color3.fromRGB(90,90,100), BorderSizePixel=0, Text="+",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, plusBtn)
+plusBtn.MouseButton1Click:Connect(function()
+    speedValue = math.clamp(speedValue + 10, 16, 500)
+    speedNum.Text = tostring(speedValue)
+    if speedOn and lp.Character and lp.Character:FindFirstChild("Humanoid") then
+        lp.Character.Humanoid.WalkSpeed = speedValue
+    end
+end)
+local minusBtn = C("TextButton", {
+    Parent=speedRow, Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,295,0,0),
+    BackgroundColor3=Color3.fromRGB(90,90,100), BorderSizePixel=0, Text="-",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, minusBtn)
+minusBtn.MouseButton1Click:Connect(function()
+    speedValue = math.clamp(speedValue - 10, 16, 500)
+    speedNum.Text = tostring(speedValue)
+    if speedOn and lp.Character and lp.Character:FindFirstChild("Humanoid") then
+        lp.Character.Humanoid.WalkSpeed = speedValue
+    end
+end)
+
+local jumpPowerRow = TabRow(1, "JumpPower")
+local jumpPowerBtn = C("TextButton", {
+    Parent=jumpPowerRow, Size=UDim2.new(0,150,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="OFF",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, jumpPowerBtn)
+local jumpEnabled = false
+jumpPowerBtn.MouseButton1Click:Connect(function()
+    local humanoid = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    jumpEnabled = not jumpEnabled
+    jumpPowerBtn.Text = jumpEnabled and "ON" or "OFF"
+    TweenService:Create(jumpPowerBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = jumpEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(70,70,80)
+    }):Play()
+    if jumpEnabled then
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = 100
+    else
+        humanoid.JumpPower = 50
+    end
+end)
+
+local infJump = false
+local infJumpRow = TabRow(1, "InfJump")
+local infJumpBtn = C("TextButton", {
+    Parent=infJumpRow, Size=UDim2.new(0,120,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="OFF",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, infJumpBtn)
+infJumpBtn.MouseButton1Click:Connect(function()
+    infJump = not infJump
+    infJumpBtn.Text = infJump and "ON" or "OFF"
+    TweenService:Create(infJumpBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = infJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80)
+    }):Play()
+end)
+UserInputService.JumpRequest:Connect(function()
+    if infJump and lp.Character and lp.Character:FindFirstChild("Humanoid") then
+        lp.Character.Humanoid:ChangeState("Jumping")
+    end
+end)
+
+local noclip = false
+local noclipRow = TabRow(1, "Noclip")
+local noclipBtn = C("TextButton", {
+    Parent=noclipRow, Size=UDim2.new(0,120,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="OFF",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, noclipBtn)
+noclipBtn.MouseButton1Click:Connect(function()
+    noclip = not noclip
+    noclipBtn.Text = noclip and "ON" or "OFF"
+    TweenService:Create(noclipBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = noclip and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80)
+    }):Play()
+end)
+game:GetService("RunService").Stepped:Connect(function()
+    if noclip and lp.Character then
+        for _, part in pairs(lp.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+local esp = false
+local espRow = TabRow(2, "ESP")
+local espBtn = C("TextButton", {
+    Parent=espRow, Size=UDim2.new(0,120,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="OFF",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, espBtn)
+
+local espObjects = {}
+local function createESP(plr)
+    if plr == lp then return end
+    local char = plr.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    if espObjects[plr] then return end
+    local box = Instance.new("BoxHandleAdornment")
+    box.Size = Vector3.new(4,6,2)
+    box.Color3 = Color3.fromRGB(255, 85, 0)
+    box.Transparency = 0.6
+    box.ZIndex = 10
+    box.AlwaysOnTop = true
+    box.Adornee = char.HumanoidRootPart
+    box.Parent = char
+    local tag = Instance.new("BillboardGui")
+    tag.Adornee = char.Head
+    tag.Size = UDim2.new(0,100,0,16)
+    tag.StudsOffset = Vector3.new(0, 2, 0)
+    tag.AlwaysOnTop = true
+    tag.Parent = char
+    local label = Instance.new("TextLabel")
+    label.Text = plr.Name
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1,0,1,0)
+    label.TextColor3 = Color3.fromRGB(255, 85, 0)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.Parent = tag
+    espObjects[plr] = {box=box, tag=tag}
+end
+local function removeESP(plr)
+    if espObjects[plr] then
+        espObjects[plr].box:Destroy()
+        espObjects[plr].tag:Destroy()
+        espObjects[plr] = nil
+    end
+end
+local function updateESP()
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp then
+            if esp then createESP(plr) else removeESP(plr) end
+        end
+    end
+end
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function()
+        if esp then createESP(plr) end
+    end)
+end)
+Players.PlayerRemoving:Connect(function(plr)
+    removeESP(plr)
+end)
+espBtn.MouseButton1Click:Connect(function()
+    esp = not esp
+    espBtn.Text = esp and "ON" or "OFF"
+    TweenService:Create(espBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = esp and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80)
+    }):Play()
+    updateESP()
+end)
+
+local xray = false
+local xrayRow = TabRow(2, "Xray")
+local xrayBtn = C("TextButton", {
+    Parent=xrayRow, Size=UDim2.new(0,120,1,0), Position=UDim2.new(0,130,0,0),
+    BackgroundColor3=Color3.fromRGB(70,70,80), BorderSizePixel=0, Text="OFF",
+    TextColor3=Color3.fromRGB(235,235,240), Font=Enum.Font.GothamBold, TextSize=14
+})
+C("UICorner", {CornerRadius=UDim.new(0,8)}, xrayBtn)
+xrayBtn.MouseButton1Click:Connect(function()
+    xray = not xray
+    xrayBtn.Text = xray and "ON" or "OFF"
+    TweenService:Create(xrayBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = xray and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80)
+    }):Play()
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not obj:IsDescendantOf(lp.Character) then
+            obj.LocalTransparencyModifier = xray and 0.7 or 0
+        end
+    end
+end)
+
+local hidden = false
+local function setHidden(state)
+    hidden = state
+    toggleBtn.Text = hidden and "Show" or "Hide"
+    for i=1,#tabContents do
+        tabContents[i].Visible = not hidden and i==currentTab
+    end
+    TweenService:Create(win, TweenInfo.new(0.25), {
+        Size = hidden and UDim2.fromOffset(400, 70) or UDim2.fromOffset(400, 480)
+    }):Play()
+end
+toggleBtn.MouseButton1Click:Connect(function()
+    setHidden(not hidden)
+end)
+ContextActionService:BindAction("ToggleMyMenuUITabs", function(_,s)
+    if s==Enum.UserInputState.Begin then setHidden(not hidden) end
+end, false, Enum.KeyCode.RightShift)
+
+do
+    local draggingWin = false
+    local dragStart, startPos
+    header.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            draggingWin = true
+            dragStart = i.Position
+            startPos = win.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if draggingWin and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = i.Position - dragStart
+            win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            draggingWin = false
+        end
+    end)
+end
+
+applyTheme("Dark")
