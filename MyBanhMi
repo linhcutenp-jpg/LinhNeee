@@ -9,6 +9,11 @@ local RunService = game:GetService("RunService")
 local lp = Players.LocalPlayer
 local pg = lp:WaitForChild("PlayerGui")
 
+local existing = pg:FindFirstChild("MenuUI")
+if existing then
+    pcall(function() existing:Destroy() end)
+end
+
 -- Helper to quickly create instances
 local function C(class, props, parent)
     local obj = Instance.new(class)
@@ -30,7 +35,6 @@ local Themes = {
 }
 local Fonts = { Enum.Font.Gotham, Enum.Font.GothamBold, Enum.Font.Ubuntu, Enum.Font.Roboto, Enum.Font.FredokaOne }
 
--- Root GUI
 local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false }, pg)
 screen.Enabled = true
 local win = C("Frame", {
@@ -44,7 +48,6 @@ local win = C("Frame", {
 C("UICorner", { CornerRadius = UDim.new(0,14) }, win)
 local stroke = C("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Color3.fromRGB(90,90,100) }, win)
 
--- Header
 local header = C("Frame", { Size = UDim2.new(1,0,0,42), BackgroundTransparency = 0.15, BackgroundColor3 = Color3.fromRGB(50,50,60), BorderSizePixel = 0 }, win)
 C("UICorner", { CornerRadius = UDim.new(0,14) }, header)
 local title = C("TextLabel", {
@@ -73,7 +76,7 @@ local toggleBtn = C("TextButton", {
 C("UICorner", { CornerRadius = UDim.new(0,10) }, toggleBtn)
 
 -- Tabs setup
-local tabs = { "Main", "Misc" }
+local tabs = { "Main", "Misc", "Setting" }
 local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,36), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
 local tabButtons = {}
 local tabContents = {}
@@ -127,7 +130,6 @@ local animDur = 0.28
 local easingStyle = Enum.EasingStyle.Quad
 local easingDir = Enum.EasingDirection.Out
 
--- runtime state flags & connections
 local speedOn = false
 local speedValue = 100
 local jumpEnabled = false
@@ -139,17 +141,16 @@ local xray = false
 local flying = false
 local bv = nil
 local flySpeed = 60
-
--- connection handles for cleanup
 local flyConn = nil
-local noclipConn = nil
 
--- helper: tween all TextLabel/TextButton except toggleBtn
+local noclipConn = nil
+local allConns = {}
+
 local function tweenAllTexts(target)
     local tweens = {}
     for _, v in pairs(win:GetDescendants()) do
         if (v:IsA("TextLabel") or v:IsA("TextButton")) and v ~= toggleBtn then
-            if target == 0 then v.TextTransparency = 1 end -- prepare for fade in
+            if target == 0 then v.TextTransparency = 1 end
             local ok, t = pcall(function()
                 return TweenService:Create(v, TweenInfo.new(0.2, easingStyle, easingDir), {TextTransparency = target})
             end)
@@ -159,7 +160,6 @@ local function tweenAllTexts(target)
     return tweens
 end
 
--- setHidden: smooth, safe, toggleable
 local function setHidden(state)
     if animating then return end
     animating = true
@@ -188,7 +188,7 @@ local function setHidden(state)
             tabContents[i].Visible = (i == currentTab)
         end
 
-        local sizeTween = TweenService:Create(win, TweenInfo.new(animDur, easingStyle, easingDir), {Size = UDim2.fromOffset(400, 480)})
+        local sizeTween = TweenService:Create(win, TweenInfo.new(animDur, easingStyle, easingDir), {Size = UDim2.fromOffset(420, 480)})
         sizeTween:Play()
         sizeTween.Completed:Wait()
 
@@ -205,7 +205,7 @@ toggleBtn.MouseButton1Click:Connect(function()
     setHidden(not hidden)
 end)
 
-ContextActionService:BindAction("ToggleMenu_RShift", function(name, state, input)
+local bindToggleConn = ContextActionService:BindAction("ToggleMenu_RShift", function(name, state, input)
     if state == Enum.UserInputState.Begin then
         setHidden(not hidden)
     end
@@ -366,6 +366,36 @@ local speedRow = TabRow(1, "Speed")
 local speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,72,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBtn)
 local speedNum = C("TextLabel", { Parent = speedRow, Size = UDim2.new(0,50,1,0), Position = UDim2.new(0,210,0,0), BackgroundTransparency = 1, Text = tostring(speedValue), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14 }, speedRow)
+local speedBox = C("TextBox", {
+    Parent = speedRow,
+    Size = UDim2.new(0,38,1,0),
+    Position = UDim2.new(0,325,0,0),
+    BackgroundColor3 = Color3.fromRGB(90,90,100),
+    BorderSizePixel = 0,
+    Text = "",
+    PlaceholderText = "Set",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    ClearTextOnFocus = true
+}, speedRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBox)
+
+speedBox.FocusLost:Connect(function()
+    local val = tonumber(speedBox.Text)
+    speedBox.Text = ""
+    if val and val >= 16 and val <= 500 then
+        speedValue = math.floor(val)
+        speedNum.Text = tostring(speedValue)
+        if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+            lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
+        end
+    else
+        speedBox.PlaceholderText = "Err"
+        delay(1, function() speedBox.PlaceholderText = "Set" end)
+    end
+end)
+
 local plusBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,265,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "+", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, plusBtn)
 local minusBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,295,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "-", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
@@ -394,6 +424,16 @@ minusBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+local speedConn = RunService.RenderStepped:Connect(function()
+    if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+        local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+        if hum.WalkSpeed ~= speedValue then
+            hum.WalkSpeed = speedValue
+        end
+    end
+end)
+table.insert(allConns, speedConn)
+
 local jumpRow = TabRow(1, "JumpPower")
 local jumpBtn = C("TextButton", { Parent = jumpRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, jumpRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, jumpBtn)
@@ -415,11 +455,13 @@ infBtn.MouseButton1Click:Connect(function()
     infBtn.Text = infJump and "ON" or "OFF"
     TweenService:Create(infBtn, TweenInfo.new(0.2), { BackgroundColor3 = infJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
 end)
-UserInputService.JumpRequest:Connect(function()
+
+local jumpConn = UserInputService.JumpRequest:Connect(function()
     if infJump and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
         lp.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
     end
 end)
+table.insert(allConns, jumpConn)
 
 local noclipRow = TabRow(1, "Noclip")
 local noclipBtn = C("TextButton", { Parent = noclipRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, noclipRow)
@@ -430,7 +472,6 @@ noclipBtn.MouseButton1Click:Connect(function()
     TweenService:Create(noclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = noclip and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
--- assign noclip connection to variable for cleanup
 noclipConn = RunService.Stepped:Connect(function()
     if noclip and lp.Character then
         for _, part in pairs(lp.Character:GetDescendants()) do
@@ -440,6 +481,8 @@ noclipConn = RunService.Stepped:Connect(function()
         end
     end
 end)
+
+if noclipConn then table.insert(allConns, noclipConn) end
 
 -- =========================
 -- MISC TAB FEATURES
@@ -456,14 +499,23 @@ local function safeDestroy(o)
     end
 end
 
+local espColor = Color3.fromRGB(255,85,0)
+local function getPlayerESPColor(plr)
+    if plr.Team and plr.Team.TeamColor then
+        return plr.Team.TeamColor.Color
+    end
+    return espColor
+end
+
 local function createESPForCharacter(plr, char)
     if plr == lp then return end
     if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Head") then return end
     if espObjects[plr] then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
+    local color = getPlayerESPColor(plr)
     local box = Instance.new("BoxHandleAdornment")
     box.Size = Vector3.new(4,6,2)
-    box.Color3 = Color3.fromRGB(255,85,0)
+    box.Color3 = color
     box.Transparency = 0.6
     box.ZIndex = 10
     box.AlwaysOnTop = true
@@ -481,7 +533,7 @@ local function createESPForCharacter(plr, char)
     label.BackgroundTransparency = 1
     label.Size = UDim2.new(1,0,1,0)
     label.Text = plr.Name
-    label.TextColor3 = Color3.fromRGB(255,85,0)
+    label.TextColor3 = color
     label.Font = Enum.Font.GothamBold
     label.TextSize = 14
     label.Parent = tag
@@ -528,7 +580,8 @@ local function onPlayerCharacterAdded(plr)
 end
 
 for _, plr in ipairs(Players:GetPlayers()) do
-    plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+    table.insert(allConns, conn)
     if plr.Character and esp then
         spawn(function()
             local hrp = plr.Character:WaitForChild("HumanoidRootPart", 5)
@@ -537,13 +590,16 @@ for _, plr in ipairs(Players:GetPlayers()) do
     end
 end
 
-Players.PlayerAdded:Connect(function(plr)
-    plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+local playerAddedConn = Players.PlayerAdded:Connect(function(plr)
+    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+    table.insert(allConns, conn)
 end)
+table.insert(allConns, playerAddedConn)
 
-Players.PlayerRemoving:Connect(function(plr)
+local playerRemovingConn = Players.PlayerRemoving:Connect(function(plr)
     removeESPForPlayer(plr)
 end)
+table.insert(allConns, playerRemovingConn)
 
 espBtn.MouseButton1Click:Connect(function()
     esp = not esp
@@ -575,8 +631,8 @@ local tpBox = C("TextBox", {
     Position = UDim2.new(0,130,0,0),
     BackgroundColor3 = Color3.fromRGB(70,70,80),
     BorderSizePixel = 0,
-    Text = "", -- để trống
-    PlaceholderText = "PlayerName", -- chỉ là gợi ý
+    Text = "",
+    PlaceholderText = "PlayerName",
     TextColor3 = Color3.fromRGB(235,235,240),
     Font = Enum.Font.Gotham,
     TextSize = 14,
@@ -597,25 +653,52 @@ local tpBtn = C("TextButton", {
 }, tpRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, tpBtn)
 
-tpBtn.MouseButton1Click:Connect(function()
-    local name = tostring(tpBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
-    if name == "" then
-        tpBox.Text = ""
-        return
-    end
-    local target = Players:FindFirstChild(name)
-    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-        local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,3,0)
+local function findPlayerByPartial(namePart)
+    if not namePart or namePart == "" then return nil end
+    namePart = string.lower(namePart)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if string.find(string.lower(plr.Name), namePart, 1, true) then
+            return plr
         end
     end
+    return nil
+end
+
+tpBtn.MouseButton1Click:Connect(function()
+    local nameInput = tostring(tpBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
+    tpBox.Text = ""
+    local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    local targetPlayer = findPlayerByPartial(nameInput)
+    if hrp and targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        hrp.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0,3,0)
+    end
 end)
+
 
 -- ====== ADDED: Fly (Misc) ======
 local flyRow = TabRow(2, "Fly")
 local flyBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
+ContextActionService:BindAction("ToggleFly_F", function(_, state)
+    if state == Enum.UserInputState.Begin then
+        flyBtn:Activate()
+    end
+    return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.F)
+local flySpeedLabel = C("TextLabel", { Parent = flyRow, Size = UDim2.new(0,60,1,0), Position = UDim2.new(0,260,0,0), BackgroundTransparency = 1, Text = "Speed: "..flySpeed, TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14 }, flyRow)
+local flyPlusBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,320,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "+", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, flyPlusBtn)
+local flyMinusBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,350,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "-", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, flyMinusBtn)
+
+flyPlusBtn.MouseButton1Click:Connect(function()
+    flySpeed = math.clamp(flySpeed + 10, 20, 200)
+    flySpeedLabel.Text = "Speed: "..flySpeed
+end)
+flyMinusBtn.MouseButton1Click:Connect(function()
+    flySpeed = math.clamp(flySpeed - 10, 20, 200)
+    flySpeedLabel.Text = "Speed: "..flySpeed
+end)
 
 flyBtn.MouseButton1Click:Connect(function()
     flying = not flying
@@ -645,7 +728,16 @@ end)
 
 -- assign fly connection to variable for cleanup
 flyConn = RunService.RenderStepped:Connect(function()
-    if flying and bv and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+    if flying and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = lp.Character:FindFirstChild("HumanoidRootPart")
+        if not bv or bv.Parent ~= hrp then
+            if bv then pcall(function() bv:Destroy() end) end
+            bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(1e5,1e5,1e5)
+            bv.Velocity = Vector3.new(0,0,0)
+            bv.Parent = hrp
+        end
+
         local cam = workspace.CurrentCamera
         local moveDir = Vector3.new(0,0,0)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
@@ -674,6 +766,7 @@ flyConn = RunService.RenderStepped:Connect(function()
         end
     end
 end)
+if flyConn then table.insert(allConns, flyConn) end
 
 -- ====== Bring Part với 2 nút dọc ======
 local bringRow = TabRow(2, "Bring Part")
@@ -728,7 +821,19 @@ local bringAllBtn = C("TextButton", {
     Font = Enum.Font.GothamBold,
     TextSize = 13
 }, btnFrame)
+local bringPlayerBtn = C("TextButton", {
+    Parent = btnFrame,
+    Size = UDim2.new(1,0,0.5,-2),
+    BackgroundColor3 = Color3.fromRGB(90,90,100),
+    BorderSizePixel = 0,
+    Text = "Bring Player",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.GothamBold,
+    TextSize = 13
+}, btnFrame)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, bringPlayerBtn)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, bringAllBtn)
+
 
 local function findAllByName(name)
     local lower = (name or ""):lower()
@@ -867,6 +972,150 @@ bringAllBtn.MouseButton1Click:Connect(function()
     flashBtn(bringAllBtn, "Done", 1)
 end)
 
+-- ====== Bring Player (improved) ======
+local bringPlayerDebounce = false
+local function doBringPlayerByName(name)
+    if bringPlayerDebounce then return end
+    bringPlayerDebounce = true
+    task.defer(function()
+        task.wait(0.6)
+        bringPlayerDebounce = false
+    end)
+
+    name = tostring(name or ""):gsub("^%s*(.-)%s*$", "%1")
+    if name == "" then
+        flashBtn(bringPlayerBtn, "Empty", 0.8)
+        return
+    end
+
+    local function findPlayerByPartial(namePart)
+        namePart = string.lower(namePart or "")
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if string.find(string.lower(plr.Name), namePart, 1, true) and plr ~= lp then
+                return plr
+            end
+        end
+        return nil
+    end
+
+    local target = findPlayerByPartial(name)
+    if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+        flashBtn(bringPlayerBtn, "Not Found", 1.2)
+        return
+    end
+
+    local myHRP = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then
+        flashBtn(bringPlayerBtn, "No HRP", 1.2)
+        return
+    end
+
+    local forwardOffset = 3
+    local yOffset = 1.2
+    local destPos = myHRP.Position + (myHRP.CFrame.LookVector * forwardOffset) + Vector3.new(0, yOffset, 0)
+    local dest = CFrame.new(destPos, destPos + myHRP.CFrame.LookVector)
+
+    local ok, res = pcall(function()
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            target.Character.HumanoidRootPart.CFrame = dest
+        elseif target.Character and target.Character.PrimaryPart then
+            target.Character:SetPrimaryPartCFrame(dest)
+        else
+            error("No part to move")
+        end
+    end)
+
+    if ok then
+        flashBtn(bringPlayerBtn, "Done", 1)
+
+        spawn(function()
+            pcall(function()
+                local head = target.Character and target.Character:FindFirstChild("Head")
+                if head and espObjects[target] and espObjects[target].tag then
+                    local tag = espObjects[target].tag
+                    tag.Adornee = nil
+                    task.wait(0.03)
+                    tag.Adornee = head
+                end
+            end)
+        end)
+    else
+        flashBtn(bringPlayerBtn, "Fail", 1.2)
+        warn("[BringPlayer] Error moving target:", res)
+    end
+end
+
+bringPlayerBtn.MouseButton1Click:Connect(function()
+    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
+    doBringPlayerByName(name)
+    bringBox.Text = ""
+end)
+
+-- Bind Q to trigger Bring Player (like F for fly)
+pcall(function()
+    ContextActionService:BindAction("ToggleBring_Q", function(_, state)
+        if state == Enum.UserInputState.Begin then
+            if (bringBox.Text or "") ~= "" then
+                doBringPlayerByName(bringBox.Text)
+            else
+                local cam = workspace.CurrentCamera
+                if cam then
+                    local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
+                    local part, pos = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
+                    if part then
+                        local model = part:FindFirstAncestorOfClass("Model")
+                        if model then
+                            for _, plr in ipairs(Players:GetPlayers()) do
+                                if plr.Character == model and plr ~= lp then
+                                    doBringPlayerByName(plr.Name)
+                                    break
+                                end
+                            end
+                        end
+                    else
+                        flashBtn(bringPlayerBtn, "No Target", 1)
+                    end
+                end
+            end
+        end
+        return Enum.ContextActionResult.Sink
+    end, false, Enum.KeyCode.Q)
+end)
+
+-- As an additional fallback (some games block BindAction), also listen to InputBegan for Q
+local inputQConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Q then
+        local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
+        if name ~= "" then
+            doBringPlayerByName(name)
+            bringBox.Text = ""
+        else
+            local cam = workspace.CurrentCamera
+            if cam then
+                local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
+                local part, pos = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
+                if part then
+                    local model = part:FindFirstAncestorOfClass("Model")
+                    if model then
+                        for _, plr in ipairs(Players:GetPlayers()) do
+                            if plr.Character == model and plr ~= lp then
+                                doBringPlayerByName(plr.Name)
+                                break
+                            end
+                        end
+                    else
+                        flashBtn(bringPlayerBtn, "No Target", 1)
+                    end
+                else
+                    flashBtn(bringPlayerBtn, "No Target", 1)
+                end
+            end
+        end
+    end
+end)
+table.insert(allConns, inputQConn)
+
 -- Apply default theme
 applyTheme("Dark")
 
@@ -875,24 +1124,43 @@ local function cleanupAll()
     for plr, _ in pairs(espObjects) do
         removeESPForPlayer(plr)
     end
+
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             pcall(function() obj.LocalTransparencyModifier = 0 end)
         end
     end
+
     if bv then
         pcall(function() bv:Destroy() end)
         bv = nil
     end
+
+    -- disconnect specific conns
     if flyConn and flyConn.Connected then
-        flyConn:Disconnect()
+        pcall(function() flyConn:Disconnect() end)
         flyConn = nil
     end
     if noclipConn and noclipConn.Connected then
-        noclipConn:Disconnect()
+        pcall(function() noclipConn:Disconnect() end)
         noclipConn = nil
     end
-    if lp.Character then
+
+    -- disconnect any tracked conns in allConns
+    for _, c in ipairs(allConns) do
+        if c and c.Connected then
+            pcall(function() c:Disconnect() end)
+        end
+    end
+    table.clear(allConns)
+
+    -- unbind actions (safe)
+    pcall(function() ContextActionService:UnbindAction("ToggleMenu_RShift") end)
+    pcall(function() ContextActionService:UnbindAction("ToggleFly_F") end)
+    pcall(function() ContextActionService:UnbindAction("ToggleBring_Q") end)
+
+    -- restore humanoid states
+    if lp and lp.Character then
         local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             pcall(function()
@@ -901,6 +1169,20 @@ local function cleanupAll()
                 humanoid.PlatformStand = false
             end)
         end
+    end
+
+    -- reset internal flags
+    speedOn = false
+    jumpEnabled = false
+    infJump = false
+    noclip = false
+    esp = false
+    xray = false
+    flying = false
+
+    -- destroy GUI safely
+    if screen and screen.Parent then
+        pcall(function() screen:Destroy() end)
     end
 end
 
@@ -927,11 +1209,123 @@ local function onCharacterRemoving()
     if bv then pcall(function() bv:Destroy() end) bv = nil end
 end
 
-lp.CharacterAdded:Connect(onCharacterAdded)
-lp.CharacterRemoving:Connect(onCharacterRemoving)
+local charAddedConn = lp.CharacterAdded:Connect(onCharacterAdded)
+local charRemovingConn = lp.CharacterRemoving:Connect(onCharacterRemoving)
+if charAddedConn then table.insert(allConns, charAddedConn) end
+if charRemovingConn then table.insert(allConns, charRemovingConn) end
+
 if lp.Character then onCharacterAdded(lp.Character) end
 
--- Bind cleanup to close
-game:BindToClose(function()
-    cleanupAll()
+-- ====== SETTING TAB: Reset + Keybind UI (thay thế block cũ) ======
+do
+    local setRow = TabRow(3, "Reset Script")
+    local resetBtn = C("TextButton", {
+        Parent = setRow,
+        Size = UDim2.new(0,140,1,0),
+        Position = UDim2.new(0,130,0,0),
+        BackgroundColor3 = Color3.fromRGB(200,60,60),
+        BorderSizePixel = 0,
+        Text = "Reset All",
+        TextColor3 = Color3.fromRGB(255,255,255),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14
+    }, setRow)
+    C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
+
+    local resetDebounce = false
+    resetBtn.MouseButton1Click:Connect(function()
+        if resetDebounce then return end
+        resetDebounce = true
+        cleanupAll()
+        flashBtn(resetBtn, "Reset!", 1)
+        task.delay(1, function() resetDebounce = false end)
+    end)
+end
+
+-- ====== Keybinds (defaults) ======
+local keybinds = {
+    Fly = Enum.KeyCode.F,
+    BringPlayer = Enum.KeyCode.Q,
+    Close = Enum.KeyCode.P,
+    ToggleUI = Enum.KeyCode.RightShift
+}
+
+local function makeKeyRow(tabIndex, labelText, keyAction)
+    local row, lbl = TabRow(tabIndex, labelText)
+    local btn = C("TextButton", {
+        Parent = row,
+        Size = UDim2.new(0,120,1,0),
+        Position = UDim2.new(0,130,0,0),
+        BackgroundColor3 = Color3.fromRGB(70,70,80),
+        BorderSizePixel = 0,
+        Text = (keybinds[keyAction] and keybinds[keyAction].Name) or "None",
+        TextColor3 = Color3.fromRGB(235,235,240),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14
+    }, row)
+    C("UICorner", { CornerRadius = UDim.new(0,8) }, btn)
+
+    local waiting = false
+    btn.MouseButton1Click:Connect(function()
+        if waiting then return end
+        waiting = true
+        local oldText = btn.Text
+        btn.Text = "Press Key..."
+        local conn
+        conn = UserInputService.InputBegan:Connect(function(input, gpe)
+            if gpe then return end
+            if input.UserInputType == Enum.UserInputType.Keyboard then
+                local kc = input.KeyCode
+                if kc and kc ~= Enum.KeyCode.Unknown then
+                    keybinds[keyAction] = kc
+                    btn.Text = kc.Name
+                    waiting = false
+                    conn:Disconnect()
+                end
+            end
+        end)
+        task.delay(8, function()
+            if waiting then
+                waiting = false
+                if btn and btn.Parent then btn.Text = oldText end
+                if conn and conn.Connected then pcall(function() conn:Disconnect() end) end
+            end
+        end)
+    end)
+
+    return btn
+end
+
+local kb_fly  = makeKeyRow(3, "Fly Toggle",   "Fly")
+local kb_bring= makeKeyRow(3, "Bring Player", "BringPlayer")
+local kb_close= makeKeyRow(3, "Close UI",     "Close")
+local kb_toggle=makeKeyRow(3, "Hide/Show UI", "ToggleUI")
+
+local hintRow, hintLbl = TabRow(3, "Hotkey hint")
+hintLbl.Text = "Defaults: ToggleUI = RightShift, Close = P, Bring = Q, Fly = F"
+
+-- ====== Key input handler (calls the existing perform* functions) ======
+local keyHandlerConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if UserInputService:GetFocusedTextBox() then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+    local kc = input.KeyCode
+    if kc == keybinds.Fly then
+        if type(performToggleFly) == "function" then performToggleFly() end
+    elseif kc == keybinds.BringPlayer then
+        if type(performBringPlayer) == "function" then
+            performBringPlayer()
+        end
+    elseif kc == keybinds.Close then
+        if type(performClose) == "function" then performClose()
+        else win.Visible = false end
+    elseif kc == keybinds.ToggleUI then
+        if type(setHidden) == "function" then
+            setHidden(not hidden)
+        else
+            win.Visible = not win.Visible
+        end
+    end
 end)
+table.insert(allConns, keyHandlerConn)
