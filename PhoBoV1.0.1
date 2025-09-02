@@ -391,7 +391,6 @@ speedBox.FocusLost:Connect(function()
         speedValue = math.floor(val)
         speedNum.Text = tostring(speedValue)
         if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
-            lp.Character:FindFirstChildOfClass("Humanoid"):SetAttribute("WalkSpeed", speedValue)
             lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
         end
     else
@@ -639,8 +638,8 @@ local tpBox = C("TextBox", {
     Position = UDim2.new(0,130,0,0),
     BackgroundColor3 = Color3.fromRGB(70,70,80),
     BorderSizePixel = 0,
-    Text = "",
-    PlaceholderText = "PlayerName",
+    Text = "", -- để trống
+    PlaceholderText = "PlayerName", -- chỉ là gợi ý
     TextColor3 = Color3.fromRGB(235,235,240),
     Font = Enum.Font.Gotham,
     TextSize = 14,
@@ -980,8 +979,18 @@ bringAllBtn.MouseButton1Click:Connect(function()
     flashBtn(bringAllBtn, "Done", 1)
 end)
 
-bringPlayerBtn.MouseButton1Click:Connect(function()
-    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
+-- ====== Bring Player (improved) ======
+-- This handler is used by both the button and the Q hotkey binding.
+local bringPlayerDebounce = false
+local function doBringPlayerByName(name)
+    if bringPlayerDebounce then return end
+    bringPlayerDebounce = true
+    task.defer(function()
+        task.wait(0.6)
+        bringPlayerDebounce = false
+    end)
+
+    name = tostring(name or ""):gsub("^%s*(.-)%s*$", "%1")
     if name == "" then
         flashBtn(bringPlayerBtn, "Empty", 0.8)
         return
@@ -1009,17 +1018,121 @@ bringPlayerBtn.MouseButton1Click:Connect(function()
         return
     end
 
-    local dest = myHRP.CFrame * CFrame.new(0,4,0)
+    -- place target ~3 studs in front of you (plus small Y offset so they are not stuck in ground)
+    local forwardOffset = 3
+    local yOffset = 1.2
+    local destPos = myHRP.Position + (myHRP.CFrame.LookVector * forwardOffset) + Vector3.new(0, yOffset, 0)
+    local dest = CFrame.new(destPos, destPos + myHRP.CFrame.LookVector) -- face same dir as you
+
     local ok, res = pcall(function()
-        target.Character.HumanoidRootPart.CFrame = dest
+        -- prefer moving the HumanoidRootPart directly
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            target.Character.HumanoidRootPart.CFrame = dest
+        elseif target.Character and target.Character.PrimaryPart then
+            target.Character:SetPrimaryPartCFrame(dest)
+        else
+            error("No part to move")
+        end
     end)
+
     if ok then
         flashBtn(bringPlayerBtn, "Done", 1)
+
+        -- If ESP tag exists, re-attach its Adornee to avoid weird offset after teleport
+        spawn(function()
+            pcall(function()
+                local head = target.Character and target.Character:FindFirstChild("Head")
+                if head and espObjects[target] and espObjects[target].tag then
+                    local tag = espObjects[target].tag
+                    tag.Adornee = nil
+                    task.wait(0.03)
+                    tag.Adornee = head
+                end
+            end)
+        end)
     else
         flashBtn(bringPlayerBtn, "Fail", 1.2)
-        warn("[BringPlayer] Game không cho phép di chuyển player khác hoặc đã bị chặn! Thử ở game khác hoặc kiểm tra anti-cheat.")
+        warn("[BringPlayer] Error moving target:", res)
+    end
+end
+
+bringPlayerBtn.MouseButton1Click:Connect(function()
+    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
+    doBringPlayerByName(name)
+    bringBox.Text = ""
+end)
+
+-- Bind Q to trigger Bring Player (like F for fly)
+pcall(function()
+    ContextActionService:BindAction("ToggleBring_Q", function(_, state)
+        if state == Enum.UserInputState.Begin then
+            -- when Q pressed, bring nearest player in crosshair or the last typed name
+            -- Strategy: if bringBox has text -> use that; else try to find player under crosshair (ray)
+            if (bringBox.Text or "") ~= "" then
+                doBringPlayerByName(bringBox.Text)
+            else
+                -- raycast from camera to find a player (simple)
+                local cam = workspace.CurrentCamera
+                if cam then
+                    local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
+                    local part, pos = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
+                    if part then
+                        local model = part:FindFirstAncestorOfClass("Model")
+                        if model then
+                            -- try to find player owning that model
+                            for _, plr in ipairs(Players:GetPlayers()) do
+                                if plr.Character == model and plr ~= lp then
+                                    doBringPlayerByName(plr.Name)
+                                    break
+                                end
+                            end
+                        end
+                    else
+                        -- fallback: bring first partial match from text box (none) -> flash
+                        flashBtn(bringPlayerBtn, "No Target", 1)
+                    end
+                end
+            end
+        end
+        return Enum.ContextActionResult.Sink
+    end, false, Enum.KeyCode.Q)
+end)
+
+-- As an additional fallback (some games block BindAction), also listen to InputBegan for Q
+local inputQConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Q then
+        -- mimic clicking bringPlayerBtn: use bringBox text
+        local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
+        if name ~= "" then
+            doBringPlayerByName(name)
+            bringBox.Text = ""
+        else
+            -- try ray fallback
+            local cam = workspace.CurrentCamera
+            if cam then
+                local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
+                local part, pos = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
+                if part then
+                    local model = part:FindFirstAncestorOfClass("Model")
+                    if model then
+                        for _, plr in ipairs(Players:GetPlayers()) do
+                            if plr.Character == model and plr ~= lp then
+                                doBringPlayerByName(plr.Name)
+                                break
+                            end
+                        end
+                    else
+                        flashBtn(bringPlayerBtn, "No Target", 1)
+                    end
+                else
+                    flashBtn(bringPlayerBtn, "No Target", 1)
+                end
+            end
+        end
     end
 end)
+table.insert(allConns, inputQConn)
 
 -- Apply default theme
 applyTheme("Dark")
@@ -1065,6 +1178,7 @@ local function cleanupAll()
     -- unbind actions (safe)
     pcall(function() ContextActionService:UnbindAction("ToggleMenu_RShift") end)
     pcall(function() ContextActionService:UnbindAction("ToggleFly_F") end)
+    pcall(function() ContextActionService:UnbindAction("ToggleBring_Q") end)
 
     -- restore humanoid states
     if lp and lp.Character then
