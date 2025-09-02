@@ -1216,7 +1216,7 @@ if charRemovingConn then table.insert(allConns, charRemovingConn) end
 
 if lp.Character then onCharacterAdded(lp.Character) end
 
--- ====== SETTING TAB: Reset + Keybind UI (thay thế block cũ) ======
+-- ====== SETTING TAB: Reset + Keybind UI (replacement, compatible) ======
 do
     local setRow = TabRow(3, "Reset Script")
     local resetBtn = C("TextButton", {
@@ -1232,11 +1232,21 @@ do
     }, setRow)
     C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
 
+    local function flashBtn(btn, txt, dur)
+        local old = btn.Text
+        pcall(function() btn.Text = txt end)
+        task.delay(dur or 1, function()
+            if btn and btn.Parent then
+                pcall(function() btn.Text = old end)
+            end
+        end)
+    end
+
     local resetDebounce = false
     resetBtn.MouseButton1Click:Connect(function()
         if resetDebounce then return end
         resetDebounce = true
-        cleanupAll()
+        pcall(Cleanup)
         flashBtn(resetBtn, "Reset!", 1)
         task.delay(1, function() resetDebounce = false end)
     end)
@@ -1280,15 +1290,16 @@ local function makeKeyRow(tabIndex, labelText, keyAction)
                     keybinds[keyAction] = kc
                     btn.Text = kc.Name
                     waiting = false
-                    conn:Disconnect()
+                    pcall(function() safeDisconnect(conn) end)
                 end
             end
         end)
+        storeConn(conn)
         task.delay(8, function()
             if waiting then
                 waiting = false
-                if btn and btn.Parent then btn.Text = oldText end
-                if conn and conn.Connected then pcall(function() conn:Disconnect() end) end
+                if btn and btn.Parent then pcall(function() btn.Text = oldText end) end
+                if conn then pcall(function() safeDisconnect(conn) end) end
             end
         end)
     end)
@@ -1296,15 +1307,14 @@ local function makeKeyRow(tabIndex, labelText, keyAction)
     return btn
 end
 
-local kb_fly  = makeKeyRow(3, "Fly Toggle",   "Fly")
-local kb_bring= makeKeyRow(3, "Bring Player", "BringPlayer")
-local kb_close= makeKeyRow(3, "Close UI",     "Close")
-local kb_toggle=makeKeyRow(3, "Hide/Show UI", "ToggleUI")
+local kb_fly   = makeKeyRow(3, "Fly Toggle",   "Fly")
+local kb_bring = makeKeyRow(3, "Bring Player", "BringPlayer")
+local kb_close = makeKeyRow(3, "Close UI",     "Close")
+local kb_toggle= makeKeyRow(3, "Hide/Show UI", "ToggleUI")
 
 local hintRow, hintLbl = TabRow(3, "Hotkey hint")
 hintLbl.Text = "Defaults: ToggleUI = RightShift, Close = P, Bring = Q, Fly = F"
 
--- ====== Key input handler (calls the existing perform* functions) ======
 local keyHandlerConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if UserInputService:GetFocusedTextBox() then return end
@@ -1314,18 +1324,116 @@ local keyHandlerConn = UserInputService.InputBegan:Connect(function(input, gameP
     if kc == keybinds.Fly then
         if type(performToggleFly) == "function" then performToggleFly() end
     elseif kc == keybinds.BringPlayer then
-        if type(performBringPlayer) == "function" then
-            performBringPlayer()
-        end
+        if type(performBringPlayer) == "function" then performBringPlayer() end
     elseif kc == keybinds.Close then
         if type(performClose) == "function" then performClose()
-        else win.Visible = false end
+        else pcall(function() Cleanup(screen) end) end
     elseif kc == keybinds.ToggleUI then
         if type(setHidden) == "function" then
             setHidden(not hidden)
         else
-            win.Visible = not win.Visible
+            screen.Enabled = not screen.Enabled
         end
     end
 end)
-table.insert(allConns, keyHandlerConn)
+local ACTION_CLOSE = "Action_Close_UI"
+local ACTION_TOGGLE = "Action_Toggle_UI"
+local ACTION_FLY = "Action_Fly"
+local ACTION_BRING = "Action_Bring"
+
+pcall(function()
+    ContextActionService:UnbindAction(ACTION_CLOSE)
+    ContextActionService:UnbindAction(ACTION_TOGGLE)
+    ContextActionService:UnbindAction(ACTION_FLY)
+    ContextActionService:UnbindAction(ACTION_BRING)
+end)
+
+local function actionClose(name, state, input)
+    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+    if type(performClose) == "function" then
+        pcall(performClose)
+    else
+        pcall(function() Cleanup(screen) end)
+    end
+    return Enum.ContextActionResult.Sink
+end
+
+local function actionToggle(name, state, input)
+    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+    if type(setHidden) == "function" then
+        pcall(function() setHidden(not hidden) end)
+    else
+        pcall(function() screen.Enabled = not screen.Enabled end)
+    end
+    return Enum.ContextActionResult.Sink
+end
+
+local function actionFly(name, state, input)
+    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+    if type(performToggleFly) == "function" then
+        pcall(performToggleFly)
+    elseif type(startFly) == "function" and type(stopFly) == "function" then
+        pcall(function()
+            if flying then stopFly() else startFly() end
+        end)
+    end
+    return Enum.ContextActionResult.Sink
+end
+
+local function actionBring(name, state, input)
+    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+    if type(performBringPlayer) == "function" then
+        pcall(performBringPlayer)
+    end
+    return Enum.ContextActionResult.Sink
+end
+
+local function rebindAllKeyActions()
+    pcall(function()
+        ContextActionService:UnbindAction(ACTION_CLOSE)
+        ContextActionService:UnbindAction(ACTION_TOGGLE)
+        ContextActionService:UnbindAction(ACTION_FLY)
+        ContextActionService:UnbindAction(ACTION_BRING)
+    end)
+
+    if keybinds.Close then
+        pcall(function() ContextActionService:BindAction(ACTION_CLOSE, actionClose, false, keybinds.Close) end)
+    end
+    if keybinds.ToggleUI then
+        pcall(function() ContextActionService:BindAction(ACTION_TOGGLE, actionToggle, false, keybinds.ToggleUI) end)
+    end
+    if keybinds.Fly then
+        pcall(function() ContextActionService:BindAction(ACTION_FLY, actionFly, false, keybinds.Fly) end)
+    end
+    if keybinds.BringPlayer then
+        pcall(function() ContextActionService:BindAction(ACTION_BRING, actionBring, false, keybinds.BringPlayer) end)
+    end
+end
+
+rebindAllKeyActions()
+
+storeConn({
+    Disconnect = function()
+        pcall(function()
+            ContextActionService:UnbindAction(ACTION_CLOSE)
+            ContextActionService:UnbindAction(ACTION_TOGGLE)
+            ContextActionService:UnbindAction(ACTION_FLY)
+            ContextActionService:UnbindAction(ACTION_BRING)
+        end)
+    end
+})
+
+local function onKeybindChanged()
+    pcall(rebindAllKeyActions)
+end
+
+local heartbeatWatch = RunService.Heartbeat:Connect(function(dt)
+end)
+storeConn(heartbeatWatch)
+
+local function debugPrint(...)
+end
+
+
+-- store for cleanup
+storeConn(keyHandlerConn)
