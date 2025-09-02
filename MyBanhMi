@@ -1186,38 +1186,9 @@ local function cleanupAll()
     end
 end
 
---== Character respawn handlers ==--
-local function onCharacterAdded(char)
-    local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
-    if hum then
-        if speedOn then pcall(function() hum.WalkSpeed = speedValue end) end
-        pcall(function() hum.UseJumpPower = true; hum.JumpPower = (jumpEnabled and 100 or 50) end)
-        if flying and not bv then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                bv = Instance.new("BodyVelocity")
-                bv.MaxForce = Vector3.new(1e5,1e5,1e5)
-                bv.Velocity = Vector3.new(0,0,0)
-                bv.Parent = hrp
-                pcall(function() hum.PlatformStand = true end)
-            end
-        end
-    end
-end
-
-local function onCharacterRemoving()
-    if bv then pcall(function() bv:Destroy() end) bv = nil end
-end
-
-local charAddedConn = lp.CharacterAdded:Connect(onCharacterAdded)
-local charRemovingConn = lp.CharacterRemoving:Connect(onCharacterRemoving)
-if charAddedConn then table.insert(allConns, charAddedConn) end
-if charRemovingConn then table.insert(allConns, charRemovingConn) end
-
-if lp.Character then onCharacterAdded(lp.Character) end
-
--- ====== SETTING TAB: Reset + Keybind UI (replacement, compatible) ======
+-- ====== SETTING TAB: Reset + Keybind UI (robust replacement) ======
 do
+    -- Reset row
     local setRow = TabRow(3, "Reset Script")
     local resetBtn = C("TextButton", {
         Parent = setRow,
@@ -1246,8 +1217,11 @@ do
     resetBtn.MouseButton1Click:Connect(function()
         if resetDebounce then return end
         resetDebounce = true
-        pcall(Cleanup)
-        flashBtn(resetBtn, "Reset!", 1)
+        -- Full cleanup (destroy GUI + unbind + disconnect)
+        pcall(function() Cleanup(screen) end)
+        -- ensure global flag cleared (if you use it)
+        pcall(function() getgenv().MyBanhMi_Running = false end)
+        flashBtn(resetBtn, "Reset!", 0.9)
         task.delay(1, function() resetDebounce = false end)
     end)
 end
@@ -1260,6 +1234,7 @@ local keybinds = {
     ToggleUI = Enum.KeyCode.RightShift
 }
 
+-- makeKeyRow (one-shot safe listener; disables button while waiting)
 local function makeKeyRow(tabIndex, labelText, keyAction)
     local row, lbl = TabRow(tabIndex, labelText)
     local btn = C("TextButton", {
@@ -1271,7 +1246,8 @@ local function makeKeyRow(tabIndex, labelText, keyAction)
         Text = (keybinds[keyAction] and keybinds[keyAction].Name) or "None",
         TextColor3 = Color3.fromRGB(235,235,240),
         Font = Enum.Font.GothamBold,
-        TextSize = 14
+        TextSize = 14,
+        AutoButtonColor = false,
     }, row)
     C("UICorner", { CornerRadius = UDim.new(0,8) }, btn)
 
@@ -1279,27 +1255,53 @@ local function makeKeyRow(tabIndex, labelText, keyAction)
     btn.MouseButton1Click:Connect(function()
         if waiting then return end
         waiting = true
+        btn.Active = false
         local oldText = btn.Text
-        btn.Text = "Press Key..."
+        pcall(function() btn.Text = "Press Key..." end)
+
+        local accepted = false
         local conn
         conn = UserInputService.InputBegan:Connect(function(input, gpe)
             if gpe then return end
-            if input.UserInputType == Enum.UserInputType.Keyboard then
-                local kc = input.KeyCode
-                if kc and kc ~= Enum.KeyCode.Unknown then
-                    keybinds[keyAction] = kc
-                    btn.Text = kc.Name
-                    waiting = false
-                    pcall(function() safeDisconnect(conn) end)
-                end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+            if accepted then return end -- guard; should be redundant because we disconnect below
+            local kc = input.KeyCode
+            if not kc or kc == Enum.KeyCode.Unknown then return end
+
+            -- ignore modifier-only keys (optional)
+            if kc == Enum.KeyCode.LeftAlt or kc == Enum.KeyCode.RightAlt or
+               kc == Enum.KeyCode.LeftControl or kc == Enum.KeyCode.RightControl or
+               kc == Enum.KeyCode.LeftShift or kc == Enum.KeyCode.RightShift then
+                return
             end
+
+            accepted = true
+            -- set new key
+            keybinds[keyAction] = kc
+            pcall(function() btn.Text = kc.Name end)
+
+            -- disconnect immediately (one-shot)
+            pcall(function() safeDisconnect(conn) end)
+            conn = nil
+
+            -- rebind actions once
+            pcall(rebindAllKeyActions)
+
+            waiting = false
+            btn.Active = true
         end)
+
+        -- store conn so Cleanup will disconnect if player leaves before selecting
         storeConn(conn)
+
+        -- timeout: cancel waiting if no key pressed in 8s
         task.delay(8, function()
             if waiting then
                 waiting = false
-                if btn and btn.Parent then pcall(function() btn.Text = oldText end) end
+                pcall(function() if btn and btn.Parent then btn.Text = oldText end end)
                 if conn then pcall(function() safeDisconnect(conn) end) end
+                btn.Active = true
             end
         end)
     end)
@@ -1307,6 +1309,7 @@ local function makeKeyRow(tabIndex, labelText, keyAction)
     return btn
 end
 
+-- create key rows
 local kb_fly   = makeKeyRow(3, "Fly Toggle",   "Fly")
 local kb_bring = makeKeyRow(3, "Bring Player", "BringPlayer")
 local kb_close = makeKeyRow(3, "Close UI",     "Close")
@@ -1315,125 +1318,93 @@ local kb_toggle= makeKeyRow(3, "Hide/Show UI", "ToggleUI")
 local hintRow, hintLbl = TabRow(3, "Hotkey hint")
 hintLbl.Text = "Defaults: ToggleUI = RightShift, Close = P, Bring = Q, Fly = F"
 
-local keyHandlerConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if UserInputService:GetFocusedTextBox() then return end
-    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+-- Action names
+local ACTION_CLOSE_P = "MyBanhMi_Action_Close_P"
+local ACTION_TOGGLE  = "MyBanhMi_Action_Toggle_UI"
+local ACTION_FLY     = "MyBanhMi_Action_Fly"
+local ACTION_BRING   = "MyBanhMi_Action_Bring"
 
-    local kc = input.KeyCode
-    if kc == keybinds.Fly then
-        if type(performToggleFly) == "function" then performToggleFly() end
-    elseif kc == keybinds.BringPlayer then
-        if type(performBringPlayer) == "function" then performBringPlayer() end
-    elseif kc == keybinds.Close then
-        if type(performClose) == "function" then performClose()
-        else pcall(function() Cleanup(screen) end) end
-    elseif kc == keybinds.ToggleUI then
+-- safeUnbind and addBoundAction helpers (avoid duplicates)
+local function safeUnbind(name)
+    pcall(function() ContextActionService:UnbindAction(name) end)
+    for i = #_BOUND_ACTIONS, 1, -1 do
+        if _BOUND_ACTIONS[i] == name then
+            table.remove(_BOUND_ACTIONS, i)
+        end
+    end
+end
+
+local function addBoundAction(name)
+    for _, v in ipairs(_BOUND_ACTIONS) do
+        if v == name then return end
+    end
+    table.insert(_BOUND_ACTIONS, name)
+end
+
+-- action handlers
+local function actionCloseP(_, state)
+    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+    pcall(function() Cleanup(screen) end) -- full cleanup on P
+    return Enum.ContextActionResult.Sink
+end
+
+local function actionToggle(_, state)
+    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+    pcall(function()
         if type(setHidden) == "function" then
             setHidden(not hidden)
         else
-            screen.Enabled = not screen.Enabled
+            win.Visible = not win.Visible
         end
-    end
-end)
-local ACTION_CLOSE = "Action_Close_UI"
-local ACTION_TOGGLE = "Action_Toggle_UI"
-local ACTION_FLY = "Action_Fly"
-local ACTION_BRING = "Action_Bring"
-
-pcall(function()
-    ContextActionService:UnbindAction(ACTION_CLOSE)
-    ContextActionService:UnbindAction(ACTION_TOGGLE)
-    ContextActionService:UnbindAction(ACTION_FLY)
-    ContextActionService:UnbindAction(ACTION_BRING)
-end)
-
-local function actionClose(name, state, input)
-    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-    if type(performClose) == "function" then
-        pcall(performClose)
-    else
-        pcall(function() Cleanup(screen) end)
-    end
+    end)
     return Enum.ContextActionResult.Sink
 end
 
-local function actionToggle(name, state, input)
-    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-    if type(setHidden) == "function" then
-        pcall(function() setHidden(not hidden) end)
-    else
-        pcall(function() screen.Enabled = not screen.Enabled end)
-    end
-    return Enum.ContextActionResult.Sink
-end
-
-local function actionFly(name, state, input)
+local function actionFly(_, state)
     if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
     if type(performToggleFly) == "function" then
         pcall(performToggleFly)
     elseif type(startFly) == "function" and type(stopFly) == "function" then
-        pcall(function()
-            if flying then stopFly() else startFly() end
-        end)
+        pcall(function() if flying then stopFly() else startFly() end end)
     end
     return Enum.ContextActionResult.Sink
 end
 
-local function actionBring(name, state, input)
+local function actionBring(_, state)
     if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-    if type(performBringPlayer) == "function" then
-        pcall(performBringPlayer)
-    end
+    if type(performBringPlayer) == "function" then pcall(performBringPlayer) end
     return Enum.ContextActionResult.Sink
 end
 
+-- rebind function (use addBoundAction)
 local function rebindAllKeyActions()
-    pcall(function()
-        ContextActionService:UnbindAction(ACTION_CLOSE)
-        ContextActionService:UnbindAction(ACTION_TOGGLE)
-        ContextActionService:UnbindAction(ACTION_FLY)
-        ContextActionService:UnbindAction(ACTION_BRING)
-    end)
+    safeUnbind(ACTION_CLOSE_P)
+    safeUnbind(ACTION_TOGGLE)
+    safeUnbind(ACTION_FLY)
+    safeUnbind(ACTION_BRING)
 
-    if keybinds.Close then
-        pcall(function() ContextActionService:BindAction(ACTION_CLOSE, actionClose, false, keybinds.Close) end)
+    if keybinds.ToggleUI and keybinds.Close and keybinds.ToggleUI == keybinds.Close then
+        keybinds.ToggleUI = Enum.KeyCode.RightShift
     end
+
+    local closeKey = keybinds.Close or Enum.KeyCode.P
+    pcall(function() ContextActionService:BindAction(ACTION_CLOSE_P, actionCloseP, false, closeKey) end)
+    addBoundAction(ACTION_CLOSE_P)
+
     if keybinds.ToggleUI then
         pcall(function() ContextActionService:BindAction(ACTION_TOGGLE, actionToggle, false, keybinds.ToggleUI) end)
+        addBoundAction(ACTION_TOGGLE)
     end
+
     if keybinds.Fly then
         pcall(function() ContextActionService:BindAction(ACTION_FLY, actionFly, false, keybinds.Fly) end)
+        addBoundAction(ACTION_FLY)
     end
     if keybinds.BringPlayer then
         pcall(function() ContextActionService:BindAction(ACTION_BRING, actionBring, false, keybinds.BringPlayer) end)
+        addBoundAction(ACTION_BRING)
     end
 end
-
 rebindAllKeyActions()
-
-storeConn({
-    Disconnect = function()
-        pcall(function()
-            ContextActionService:UnbindAction(ACTION_CLOSE)
-            ContextActionService:UnbindAction(ACTION_TOGGLE)
-            ContextActionService:UnbindAction(ACTION_FLY)
-            ContextActionService:UnbindAction(ACTION_BRING)
-        end)
-    end
-})
-
-local function onKeybindChanged()
-    pcall(rebindAllKeyActions)
-end
-
-local heartbeatWatch = RunService.Heartbeat:Connect(function(dt)
-end)
-storeConn(heartbeatWatch)
-
-local function debugPrint(...)
-end
-
-
--- store for cleanup
-storeConn(keyHandlerConn)
+-- local function dbg(...) print("[MyBanhMi]", ...) end
+local function dbg(...) end
