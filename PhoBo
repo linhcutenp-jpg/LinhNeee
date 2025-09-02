@@ -9,6 +9,12 @@ local RunService = game:GetService("RunService")
 local lp = Players.LocalPlayer
 local pg = lp:WaitForChild("PlayerGui")
 
+-- nếu GUI cũ tồn tại thì xoá trước để tránh trùng lặp
+local existing = pg:FindFirstChild("MenuUI")
+if existing then
+    pcall(function() existing:Destroy() end)
+end
+
 -- Helper to quickly create instances
 local function C(class, props, parent)
     local obj = Instance.new(class)
@@ -125,7 +131,6 @@ local animDur = 0.28
 local easingStyle = Enum.EasingStyle.Quad
 local easingDir = Enum.EasingDirection.Out
 
--- runtime state flags & connections
 local speedOn = false
 local speedValue = 100
 local jumpEnabled = false
@@ -137,12 +142,9 @@ local xray = false
 local flying = false
 local bv = nil
 local flySpeed = 60
-
--- connection handles for cleanup
 local flyConn = nil
-local noclipConn = nil
 
--- table để track thêm connections do bạn tạo (nếu muốn sau này)
+local noclipConn = nil
 local allConns = {}
 
 -- helper: tween all TextLabel/TextButton except toggleBtn
@@ -160,7 +162,6 @@ local function tweenAllTexts(target)
     return tweens
 end
 
--- setHidden: smooth, safe, toggleable
 local function setHidden(state)
     if animating then return end
     animating = true
@@ -189,7 +190,7 @@ local function setHidden(state)
             tabContents[i].Visible = (i == currentTab)
         end
 
-        local sizeTween = TweenService:Create(win, TweenInfo.new(animDur, easingStyle, easingDir), {Size = UDim2.fromOffset(400, 480)})
+        local sizeTween = TweenService:Create(win, TweenInfo.new(animDur, easingStyle, easingDir), {Size = UDim2.fromOffset(420, 480)})
         sizeTween:Play()
         sizeTween.Completed:Wait()
 
@@ -206,12 +207,13 @@ toggleBtn.MouseButton1Click:Connect(function()
     setHidden(not hidden)
 end)
 
-ContextActionService:BindAction("ToggleMenu_RShift", function(name, state, input)
+local bindToggleConn = ContextActionService:BindAction("ToggleMenu_RShift", function(name, state, input)
     if state == Enum.UserInputState.Begin then
         setHidden(not hidden)
     end
     return Enum.ContextActionResult.Sink
 end, false, Enum.KeyCode.RightShift)
+-- cannot Disconnect a BindAction result - unbind with UnbindAction in cleanup
 
 local closeBtn = C("TextButton", {
     Name = "CloseBtn",
@@ -389,6 +391,7 @@ speedBox.FocusLost:Connect(function()
         speedValue = math.floor(val)
         speedNum.Text = tostring(speedValue)
         if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+            lp.Character:FindFirstChildOfClass("Humanoid"):SetAttribute("WalkSpeed", speedValue)
             lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
         end
     else
@@ -425,8 +428,8 @@ minusBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Đảm bảo tốc độ luôn đúng khi speedOn
-RunService.RenderStepped:Connect(function()
+-- Đảm bảo tốc độ luôn đúng khi speedOn (lưu connection để dọn dẹp sau)
+local speedConn = RunService.RenderStepped:Connect(function()
     if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
         local hum = lp.Character:FindFirstChildOfClass("Humanoid")
         if hum.WalkSpeed ~= speedValue then
@@ -434,6 +437,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
+table.insert(allConns, speedConn)
 
 local jumpRow = TabRow(1, "JumpPower")
 local jumpBtn = C("TextButton", { Parent = jumpRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, jumpRow)
@@ -456,11 +460,13 @@ infBtn.MouseButton1Click:Connect(function()
     infBtn.Text = infJump and "ON" or "OFF"
     TweenService:Create(infBtn, TweenInfo.new(0.2), { BackgroundColor3 = infJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
 end)
-UserInputService.JumpRequest:Connect(function()
+
+local jumpConn = UserInputService.JumpRequest:Connect(function()
     if infJump and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
         lp.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
     end
 end)
+table.insert(allConns, jumpConn)
 
 local noclipRow = TabRow(1, "Noclip")
 local noclipBtn = C("TextButton", { Parent = noclipRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, noclipRow)
@@ -481,6 +487,9 @@ noclipConn = RunService.Stepped:Connect(function()
         end
     end
 end)
+
+-- lưu noclipConn để dọn dẹp
+if noclipConn then table.insert(allConns, noclipConn) end
 
 -- =========================
 -- MISC TAB FEATURES
@@ -577,8 +586,10 @@ local function onPlayerCharacterAdded(plr)
     end
 end
 
+-- lưu các listener cho mỗi player để có thể disconnect khi cleanup
 for _, plr in ipairs(Players:GetPlayers()) do
-    plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+    table.insert(allConns, conn)
     if plr.Character and esp then
         spawn(function()
             local hrp = plr.Character:WaitForChild("HumanoidRootPart", 5)
@@ -587,13 +598,16 @@ for _, plr in ipairs(Players:GetPlayers()) do
     end
 end
 
-Players.PlayerAdded:Connect(function(plr)
-    plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+local playerAddedConn = Players.PlayerAdded:Connect(function(plr)
+    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
+    table.insert(allConns, conn)
 end)
+table.insert(allConns, playerAddedConn)
 
-Players.PlayerRemoving:Connect(function(plr)
+local playerRemovingConn = Players.PlayerRemoving:Connect(function(plr)
     removeESPForPlayer(plr)
 end)
+table.insert(allConns, playerRemovingConn)
 
 espBtn.MouseButton1Click:Connect(function()
     esp = not esp
@@ -625,8 +639,8 @@ local tpBox = C("TextBox", {
     Position = UDim2.new(0,130,0,0),
     BackgroundColor3 = Color3.fromRGB(70,70,80),
     BorderSizePixel = 0,
-    Text = "", -- để trống
-    PlaceholderText = "PlayerName", -- chỉ là gợi ý
+    Text = "",
+    PlaceholderText = "PlayerName",
     TextColor3 = Color3.fromRGB(235,235,240),
     Font = Enum.Font.Gotham,
     TextSize = 14,
@@ -660,7 +674,7 @@ end
 
 tpBtn.MouseButton1Click:Connect(function()
     local nameInput = tostring(tpBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
-    tpBox.Text = "" -- clear sau khi bấm
+    tpBox.Text = ""
     local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
     local targetPlayer = findPlayerByPartial(nameInput)
     if hrp and targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
@@ -724,7 +738,6 @@ end)
 flyConn = RunService.RenderStepped:Connect(function()
     if flying and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = lp.Character:FindFirstChild("HumanoidRootPart")
-        -- Auto re-create BodyVelocity if missing
         if not bv or bv.Parent ~= hrp then
             if bv then pcall(function() bv:Destroy() end) end
             bv = Instance.new("BodyVelocity")
@@ -761,6 +774,7 @@ flyConn = RunService.RenderStepped:Connect(function()
         end
     end
 end)
+if flyConn then table.insert(allConns, flyConn) end
 
 -- ====== Bring Part với 2 nút dọc ======
 local bringRow = TabRow(2, "Bring Part")
@@ -966,7 +980,6 @@ bringAllBtn.MouseButton1Click:Connect(function()
     flashBtn(bringAllBtn, "Done", 1)
 end)
 
--- Bring Player (teleport player khác về vị trí của bạn)
 bringPlayerBtn.MouseButton1Click:Connect(function()
     local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
     if name == "" then
@@ -974,7 +987,6 @@ bringPlayerBtn.MouseButton1Click:Connect(function()
         return
     end
 
-    -- Tìm player theo tên (không phải chính mình)
     local function findPlayerByPartial(namePart)
         namePart = string.lower(namePart or "")
         for _, plr in ipairs(Players:GetPlayers()) do
@@ -997,7 +1009,6 @@ bringPlayerBtn.MouseButton1Click:Connect(function()
         return
     end
 
-    -- Teleport player mục tiêu đến vị trí của bạn (offset trên đầu 4 studs)
     local dest = myHRP.CFrame * CFrame.new(0,4,0)
     local ok, res = pcall(function()
         target.Character.HumanoidRootPart.CFrame = dest
@@ -1019,17 +1030,20 @@ local function cleanupAll()
     for plr, _ in pairs(espObjects) do
         removeESPForPlayer(plr)
     end
+
     -- restore transparency for parts
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             pcall(function() obj.LocalTransparencyModifier = 0 end)
         end
     end
+
     -- destroy BV
     if bv then
         pcall(function() bv:Destroy() end)
         bv = nil
     end
+
     -- disconnect specific conns
     if flyConn and flyConn.Connected then
         pcall(function() flyConn:Disconnect() end)
@@ -1039,6 +1053,7 @@ local function cleanupAll()
         pcall(function() noclipConn:Disconnect() end)
         noclipConn = nil
     end
+
     -- disconnect any tracked conns in allConns
     for _, c in ipairs(allConns) do
         if c and c.Connected then
@@ -1046,11 +1061,13 @@ local function cleanupAll()
         end
     end
     table.clear(allConns)
+
     -- unbind actions (safe)
     pcall(function() ContextActionService:UnbindAction("ToggleMenu_RShift") end)
     pcall(function() ContextActionService:UnbindAction("ToggleFly_F") end)
+
     -- restore humanoid states
-    if lp.Character then
+    if lp and lp.Character then
         local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             pcall(function()
@@ -1060,7 +1077,8 @@ local function cleanupAll()
             end)
         end
     end
-    -- reset internal flags (optional but helpful)
+
+    -- reset internal flags
     speedOn = false
     jumpEnabled = false
     infJump = false
@@ -1068,7 +1086,8 @@ local function cleanupAll()
     esp = false
     xray = false
     flying = false
-    -- destroy GUI
+
+    -- destroy GUI safely
     if screen and screen.Parent then
         pcall(function() screen:Destroy() end)
     end
@@ -1097,8 +1116,11 @@ local function onCharacterRemoving()
     if bv then pcall(function() bv:Destroy() end) bv = nil end
 end
 
-lp.CharacterAdded:Connect(onCharacterAdded)
-lp.CharacterRemoving:Connect(onCharacterRemoving)
+local charAddedConn = lp.CharacterAdded:Connect(onCharacterAdded)
+local charRemovingConn = lp.CharacterRemoving:Connect(onCharacterRemoving)
+if charAddedConn then table.insert(allConns, charAddedConn) end
+if charRemovingConn then table.insert(allConns, charRemovingConn) end
+
 if lp.Character then onCharacterAdded(lp.Character) end
 
 -- ====== SETTING TAB: Reset Script (your button, improved) ======
@@ -1116,7 +1138,6 @@ local resetBtn = C("TextButton", {
 }, setRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
 
--- Anti-spam debounce
 local resetDebounce = false
 resetBtn.MouseButton1Click:Connect(function()
     if resetDebounce then return end
@@ -1126,7 +1147,6 @@ resetBtn.MouseButton1Click:Connect(function()
     task.delay(1, function() resetDebounce = false end)
 end)
 
--- Bind cleanup to close
 game:BindToClose(function()
     cleanupAll()
 end)
