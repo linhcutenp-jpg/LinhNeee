@@ -1205,102 +1205,84 @@ local function cleanupAll()
     end
 end
 
--- ====== SETTING TAB: Reset + Keybind UI ======
-do
-    local setRow = TabRow(3, "Reset Script")
+-- ====== SETTING TAB: Reset Script (improved) ======
+local setRow = TabRow(3, "Reset Script")
 
-    -- Global storage để quản lý reset triệt để
-    getgenv()._RESET_DATA = getgenv()._RESET_DATA or {
-        connections = {}, -- tất cả connections
-        threads     = {}, -- tất cả coroutine
-        uiRefs      = {}  -- GUI chính (ScreenGui/Frame)
-    }
+-- Global storage cho reset triệt để
+getgenv()._RESET_DATA = getgenv()._RESET_DATA or {
+    connections = {},
+    threads     = {},
+    uiRefs      = {}
+}
 
-    -- ====== Hàm resetAll ======
-    local function resetAll()
-        -- Destroy tất cả GUI
-        for _, obj in ipairs(_RESET_DATA.uiRefs) do
-            pcall(function() obj:Destroy() end)
+-- Hàm reset triệt để
+local function cleanupAll()
+    -- Destroy tất cả GUI
+    for _, obj in ipairs(_RESET_DATA.uiRefs) do
+        pcall(function() obj:Destroy() end)
+    end
+    table.clear(_RESET_DATA.uiRefs)
+
+    -- Disconnect tất cả connection
+    for _, c in ipairs(_RESET_DATA.connections) do
+        pcall(function() c:Disconnect() end)
+    end
+    table.clear(_RESET_DATA.connections)
+
+    -- Close tất cả threads
+    for _, t in ipairs(_RESET_DATA.threads) do
+        pcall(function() coroutine.close(t) end)
+    end
+    table.clear(_RESET_DATA.threads)
+
+    -- Unbind tất cả keybinds
+    if _BOUND_ACTIONS then
+        for _, name in ipairs(_BOUND_ACTIONS) do
+            pcall(function() ContextActionService:UnbindAction(name) end)
         end
-        table.clear(_RESET_DATA.uiRefs)
-
-        -- Disconnect tất cả connections
-        for _, c in ipairs(_RESET_DATA.connections) do
-            pcall(function() c:Disconnect() end)
-        end
-        table.clear(_RESET_DATA.connections)
-
-        -- Close tất cả threads
-        for _, t in ipairs(_RESET_DATA.threads) do
-            pcall(function() coroutine.close(t) end)
-        end
-        table.clear(_RESET_DATA.threads)
-
-        -- Unbind tất cả keybinds
-        if _BOUND_ACTIONS then
-            for _, name in ipairs(_BOUND_ACTIONS) do
-                pcall(function() ContextActionService:UnbindAction(name) end)
-            end
-            table.clear(_BOUND_ACTIONS)
-        end
-
-        -- Reset flags
-        getgenv().MyBanhMi_Running = false
+        table.clear(_BOUND_ACTIONS)
     end
 
-    -- ====== Nút Reset All ======
-    local resetBtn = C("TextButton", {
-        Parent = setRow,
-        Size = UDim2.new(0,140,1,0),
-        Position = UDim2.new(0,130,0,0),
-        BackgroundColor3 = Color3.fromRGB(200,60,60),
-        BorderSizePixel = 0,
-        Text = "Reset All",
-        TextColor3 = Color3.fromRGB(255,255,255),
-        Font = Enum.Font.GothamBold,
-        TextSize = 14
-    }, setRow)
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
-
-    local function flashBtn(btn, txt, dur)
-        local old = btn.Text
-        pcall(function() btn.Text = txt end)
-        task.delay(dur or 1, function()
-            if btn and btn.Parent then
-                pcall(function() btn.Text = old end)
-            end
-        end)
-    end
-
-    local resetDebounce = false
-    resetBtn.MouseButton1Click:Connect(function()
-        if resetDebounce then return end
-        resetDebounce = true
-
-        flashBtn(resetBtn, "Reset!", 0.9)
-
-        -- thực hiện reset
-        resetAll()
-
-        -- tạo lại UI
-        if type(CreateMainUI) == "function" then
-            local newWin = CreateMainUI()
-            if newWin then
-                win = newWin
-                table.insert(_RESET_DATA.uiRefs, newWin)
-            else
-                warn("⚠️ CreateMainUI() phải return GUI chính (Frame/ScreenGui)!")
-            end
-        end
-
-        task.delay(1, function() resetDebounce = false end)
-    end)
-
-    -- ====== Ghi chú keybind ======
-    local hintRow, hintLbl = TabRow(3, "Hotkey hint")
-    hintLbl.Text = string.format("ToggleUI: %s | Close: %s | Bring: %s",
-        keybinds.ToggleUI.Name,
-        keybinds.Close.Name,
-        keybinds.Bring.Name
-    )
+    -- Reset flag
+    getgenv().MyBanhMi_Running = false
 end
+
+-- Nút Reset All
+local resetBtn = C("TextButton", {
+    Parent = setRow,
+    Size = UDim2.new(0,140,1,0),
+    Position = UDim2.new(0,130,0,0),
+    BackgroundColor3 = Color3.fromRGB(200,60,60),
+    BorderSizePixel = 0,
+    Text = "Reset All",
+    TextColor3 = Color3.fromRGB(255,255,255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14
+}, setRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
+
+-- flash text
+local function flashBtn(btn, txt, dur)
+    local old = btn.Text
+    pcall(function() btn.Text = txt end)
+    task.delay(dur or 1, function()
+        if btn and btn.Parent then
+            pcall(function() btn.Text = old end)
+        end
+    end)
+end
+
+-- debounce và reset
+local resetDebounce = false
+resetBtn.MouseButton1Click:Connect(function()
+    if resetDebounce then return end
+    resetDebounce = true
+    cleanupAll()
+    flashBtn(resetBtn, "Reset!", 1)
+    task.delay(1, function() resetDebounce = false end)
+end)
+
+-- cleanup khi game đóng
+game:BindToClose(function()
+    cleanupAll()
+end)
