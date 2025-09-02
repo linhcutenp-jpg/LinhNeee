@@ -1219,7 +1219,7 @@ do
         resetDebounce = true
         -- Full cleanup (destroy GUI + unbind + disconnect)
         pcall(function() Cleanup(screen) end)
-        -- ensure global flag cleared (if you use it)
+        -- clear running flag if you use one
         pcall(function() getgenv().MyBanhMi_Running = false end)
         flashBtn(resetBtn, "Reset!", 0.9)
         task.delay(1, function() resetDebounce = false end)
@@ -1265,11 +1265,11 @@ local function makeKeyRow(tabIndex, labelText, keyAction)
             if gpe then return end
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
-            if accepted then return end -- guard; should be redundant because we disconnect below
+            if accepted then return end
             local kc = input.KeyCode
             if not kc or kc == Enum.KeyCode.Unknown then return end
 
-            -- ignore modifier-only keys (optional)
+            -- ignore modifier-only keys
             if kc == Enum.KeyCode.LeftAlt or kc == Enum.KeyCode.RightAlt or
                kc == Enum.KeyCode.LeftControl or kc == Enum.KeyCode.RightControl or
                kc == Enum.KeyCode.LeftShift or kc == Enum.KeyCode.RightShift then
@@ -1405,6 +1405,10 @@ local function rebindAllKeyActions()
         addBoundAction(ACTION_BRING)
     end
 end
+
+-- initial bind
 rebindAllKeyActions()
--- local function dbg(...) print("[MyBanhMi]", ...) end
+
+-- debug: optional prints (comment out to silence)
 local function dbg(...) end
+
