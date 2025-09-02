@@ -9,6 +9,25 @@ local RunService = game:GetService("RunService")
 local lp = Players.LocalPlayer
 local pg = lp:WaitForChild("PlayerGui")
 
+-- ====== PROTECTION: basic anti-theft (edit ALLOWED_USER_IDS) ======
+local PROTECT = true
+local ALLOWED_USER_IDS = { 
+	9002922877,
+    -- example: 12345678,
+}
+if PROTECT then
+    local allowed = false
+    for _, id in ipairs(ALLOWED_USER_IDS) do
+        if id == lp.UserId then allowed = true; break end
+    end
+    if not allowed then
+        warn("[MyBanhMi] Unauthorized user detected (UserId=" .. tostring(lp.UserId) .. "). Script will stop.")
+        return
+    end
+end
+
+
+
 local existing = pg:FindFirstChild("MenuUI")
 if existing then
     pcall(function() existing:Destroy() end)
@@ -1186,13 +1205,21 @@ local function cleanupAll()
     end
 end
 
--- ====== SETTING TAB: Reset + Keybind UI (robust replacement) ======
+-- ====== SETTING TAB: Reset + Keybind UI ======
 do
-    -- Reset row
     local setRow = TabRow(3, "Reset Script")
+
+    -- Global storage để quản lý reset triệt để
+    getgenv()._RESET_DATA = getgenv()._RESET_DATA or {
+        connections = {}, -- tất cả connections
+        threads     = {}, -- tất cả coroutine
+        uiRefs      = {}  -- GUI chính (ScreenGui/Frame)
+    }
+
+    -- ===== nút Reset All =====
     local resetBtn = C("TextButton", {
         Parent = setRow,
-        Size = UDim2.new(0,140,1,0),
+        Size = UDim2.new(0,140,0,30),
         Position = UDim2.new(0,130,0,0),
         BackgroundColor3 = Color3.fromRGB(200,60,60),
         BorderSizePixel = 0,
@@ -1214,200 +1241,80 @@ do
     end
 
     local resetDebounce = false
+
+    -- ===== hàm Reset All triệt để =====
+    local function resetAll()
+        -- Destroy tất cả GUI
+        for _, obj in ipairs(_RESET_DATA.uiRefs) do
+            pcall(function() obj:Destroy() end)
+        end
+        table.clear(_RESET_DATA.uiRefs)
+
+        -- Disconnect tất cả connection
+        for _, c in ipairs(_RESET_DATA.connections) do
+            pcall(function() c:Disconnect() end)
+        end
+        table.clear(_RESET_DATA.connections)
+
+        -- Close tất cả coroutine
+        for _, t in ipairs(_RESET_DATA.threads) do
+            pcall(function() coroutine.close(t) end)
+        end
+        table.clear(_RESET_DATA.threads)
+
+        -- Unbind tất cả keybinds
+        if _BOUND_ACTIONS then
+            for _, name in ipairs(_BOUND_ACTIONS) do
+                pcall(function() ContextActionService:UnbindAction(name) end)
+            end
+            table.clear(_BOUND_ACTIONS)
+        end
+
+        -- Reset flags
+        getgenv().MyBanhMi_Running = false
+    end
+
+    -- ===== khi nhấn Reset All =====
     resetBtn.MouseButton1Click:Connect(function()
         if resetDebounce then return end
         resetDebounce = true
-        -- Full cleanup (destroy GUI + unbind + disconnect)
-        pcall(function() Cleanup(screen) end)
-        -- clear running flag if you use one
-        pcall(function() getgenv().MyBanhMi_Running = false end)
+
         flashBtn(resetBtn, "Reset!", 0.9)
+        resetAll()
+
+        -- Tạo lại UI
+        if type(CreateMainUI) == "function" then
+            local newWin = CreateMainUI()
+            if newWin then
+                win = newWin
+                table.insert(_RESET_DATA.uiRefs, newWin)
+            else
+                warn("⚠️ CreateMainUI() phải return GUI chính (Frame/ScreenGui)!")
+            end
+        end
+
         task.delay(1, function() resetDebounce = false end)
     end)
-end
 
--- ====== Keybinds (defaults) ======
-local keybinds = {
-    Fly = Enum.KeyCode.F,
-    BringPlayer = Enum.KeyCode.Q,
-    Close = Enum.KeyCode.P,
-    ToggleUI = Enum.KeyCode.RightShift
-}
+    -- ====== Ghi chú Keybinds ngay dưới Reset Script ======
+    local notes = {
+        "📌 Keybinds:",
+        "P = Close UI (xoá & tạo lại UI)",
+        "RightShift = Toggle UI (ẩn/hiện)",
+        "Q = Bring Player",
+        "Reset All = Xoá mọi hành vi/script đang chạy"
+    }
 
--- makeKeyRow (one-shot safe listener; disables button while waiting)
-local function makeKeyRow(tabIndex, labelText, keyAction)
-    local row, lbl = TabRow(tabIndex, labelText)
-    local btn = C("TextButton", {
-        Parent = row,
-        Size = UDim2.new(0,120,1,0),
-        Position = UDim2.new(0,130,0,0),
-        BackgroundColor3 = Color3.fromRGB(70,70,80),
-        BorderSizePixel = 0,
-        Text = (keybinds[keyAction] and keybinds[keyAction].Name) or "None",
-        TextColor3 = Color3.fromRGB(235,235,240),
-        Font = Enum.Font.GothamBold,
+    local noteLabel = C("TextLabel", {
+        Parent = setRow,
+        Size = UDim2.new(0, 400, 0, #notes * 18),
+        Position = UDim2.new(0, 0, 0, 35), -- ngay dưới Reset Script
+        BackgroundTransparency = 1,
+        Text = table.concat(notes, "\n"),
+        TextColor3 = Color3.fromRGB(200,200,200),
+        Font = Enum.Font.Code,
         TextSize = 14,
-        AutoButtonColor = false,
-    }, row)
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, btn)
-
-    local waiting = false
-    btn.MouseButton1Click:Connect(function()
-        if waiting then return end
-        waiting = true
-        btn.Active = false
-        local oldText = btn.Text
-        pcall(function() btn.Text = "Press Key..." end)
-
-        local accepted = false
-        local conn
-        conn = UserInputService.InputBegan:Connect(function(input, gpe)
-            if gpe then return end
-            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-
-            if accepted then return end
-            local kc = input.KeyCode
-            if not kc or kc == Enum.KeyCode.Unknown then return end
-
-            -- ignore modifier-only keys
-            if kc == Enum.KeyCode.LeftAlt or kc == Enum.KeyCode.RightAlt or
-               kc == Enum.KeyCode.LeftControl or kc == Enum.KeyCode.RightControl or
-               kc == Enum.KeyCode.LeftShift or kc == Enum.KeyCode.RightShift then
-                return
-            end
-
-            accepted = true
-            -- set new key
-            keybinds[keyAction] = kc
-            pcall(function() btn.Text = kc.Name end)
-
-            -- disconnect immediately (one-shot)
-            pcall(function() safeDisconnect(conn) end)
-            conn = nil
-
-            -- rebind actions once
-            pcall(rebindAllKeyActions)
-
-            waiting = false
-            btn.Active = true
-        end)
-
-        -- store conn so Cleanup will disconnect if player leaves before selecting
-        storeConn(conn)
-
-        -- timeout: cancel waiting if no key pressed in 8s
-        task.delay(8, function()
-            if waiting then
-                waiting = false
-                pcall(function() if btn and btn.Parent then btn.Text = oldText end end)
-                if conn then pcall(function() safeDisconnect(conn) end) end
-                btn.Active = true
-            end
-        end)
-    end)
-
-    return btn
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top
+    }, setRow)
 end
-
--- create key rows
-local kb_fly   = makeKeyRow(3, "Fly Toggle",   "Fly")
-local kb_bring = makeKeyRow(3, "Bring Player", "BringPlayer")
-local kb_close = makeKeyRow(3, "Close UI",     "Close")
-local kb_toggle= makeKeyRow(3, "Hide/Show UI", "ToggleUI")
-
-local hintRow, hintLbl = TabRow(3, "Hotkey hint")
-hintLbl.Text = "Defaults: ToggleUI = RightShift, Close = P, Bring = Q, Fly = F"
-
--- Action names
-local ACTION_CLOSE_P = "MyBanhMi_Action_Close_P"
-local ACTION_TOGGLE  = "MyBanhMi_Action_Toggle_UI"
-local ACTION_FLY     = "MyBanhMi_Action_Fly"
-local ACTION_BRING   = "MyBanhMi_Action_Bring"
-
--- safeUnbind and addBoundAction helpers (avoid duplicates)
-local function safeUnbind(name)
-    pcall(function() ContextActionService:UnbindAction(name) end)
-    for i = #_BOUND_ACTIONS, 1, -1 do
-        if _BOUND_ACTIONS[i] == name then
-            table.remove(_BOUND_ACTIONS, i)
-        end
-    end
-end
-
-local function addBoundAction(name)
-    for _, v in ipairs(_BOUND_ACTIONS) do
-        if v == name then return end
-    end
-    table.insert(_BOUND_ACTIONS, name)
-end
-
--- action handlers
-local function actionCloseP(_, state)
-    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-    pcall(function() Cleanup(screen) end) -- full cleanup on P
-    return Enum.ContextActionResult.Sink
-end
-
-local function actionToggle(_, state)
-    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-    pcall(function()
-        if type(setHidden) == "function" then
-            setHidden(not hidden)
-        else
-            win.Visible = not win.Visible
-        end
-    end)
-    return Enum.ContextActionResult.Sink
-end
-
-local function actionFly(_, state)
-    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-    if type(performToggleFly) == "function" then
-        pcall(performToggleFly)
-    elseif type(startFly) == "function" and type(stopFly) == "function" then
-        pcall(function() if flying then stopFly() else startFly() end end)
-    end
-    return Enum.ContextActionResult.Sink
-end
-
-local function actionBring(_, state)
-    if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-    if type(performBringPlayer) == "function" then pcall(performBringPlayer) end
-    return Enum.ContextActionResult.Sink
-end
-
--- rebind function (use addBoundAction)
-local function rebindAllKeyActions()
-    safeUnbind(ACTION_CLOSE_P)
-    safeUnbind(ACTION_TOGGLE)
-    safeUnbind(ACTION_FLY)
-    safeUnbind(ACTION_BRING)
-
-    if keybinds.ToggleUI and keybinds.Close and keybinds.ToggleUI == keybinds.Close then
-        keybinds.ToggleUI = Enum.KeyCode.RightShift
-    end
-
-    local closeKey = keybinds.Close or Enum.KeyCode.P
-    pcall(function() ContextActionService:BindAction(ACTION_CLOSE_P, actionCloseP, false, closeKey) end)
-    addBoundAction(ACTION_CLOSE_P)
-
-    if keybinds.ToggleUI then
-        pcall(function() ContextActionService:BindAction(ACTION_TOGGLE, actionToggle, false, keybinds.ToggleUI) end)
-        addBoundAction(ACTION_TOGGLE)
-    end
-
-    if keybinds.Fly then
-        pcall(function() ContextActionService:BindAction(ACTION_FLY, actionFly, false, keybinds.Fly) end)
-        addBoundAction(ACTION_FLY)
-    end
-    if keybinds.BringPlayer then
-        pcall(function() ContextActionService:BindAction(ACTION_BRING, actionBring, false, keybinds.BringPlayer) end)
-        addBoundAction(ACTION_BRING)
-    end
-end
-
--- initial bind
-rebindAllKeyActions()
-
--- debug: optional prints (comment out to silence)
-local function dbg(...) end
