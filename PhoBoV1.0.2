@@ -8,14 +8,11 @@ local RunService = game:GetService("RunService")
 
 local lp = Players.LocalPlayer
 local pg = lp:WaitForChild("PlayerGui")
-
--- nếu GUI cũ tồn tại thì xoá trước để tránh trùng lặp
 local existing = pg:FindFirstChild("MenuUI")
 if existing then
     pcall(function() existing:Destroy() end)
 end
 
--- Helper to quickly create instances
 local function C(class, props, parent)
     local obj = Instance.new(class)
     if props then
@@ -124,7 +121,6 @@ for i, name in ipairs(tabs) do
 end
 tabButtons[1].BackgroundColor3 = Color3.fromRGB(130,130,220)
 
--- state vars
 local hidden = false
 local animating = false
 local animDur = 0.28
@@ -213,7 +209,6 @@ local bindToggleConn = ContextActionService:BindAction("ToggleMenu_RShift", func
     end
     return Enum.ContextActionResult.Sink
 end, false, Enum.KeyCode.RightShift)
--- cannot Disconnect a BindAction result - unbind with UnbindAction in cleanup
 
 local closeBtn = C("TextButton", {
     Name = "CloseBtn",
@@ -312,38 +307,101 @@ local knob = C("Frame", { Parent = slider, Size = UDim2.fromOffset(14,14), Posit
 C("UICorner", { CornerRadius = UDim.new(1,0) }, knob)
 local draggingKnob = false
 
-local function setAlphaFromX(x)
-    local barPos = bar.AbsolutePosition.X
-    local barSize = bar.AbsoluteSize.X
-    local rel = math.clamp((x - barPos) / barSize, 0, 1)
-    knob.Position = UDim2.new(rel, -7, 0.5, -7)
-    local alpha = rel * 0.6
-    win.BackgroundTransparency = alpha
-    header.BackgroundTransparency = math.clamp(alpha - 0.1, 0, 1)
-    stroke.Thickness = 2 * (1 - rel * 0.6) + 0.5
-end
+-- ====== SETTING TAB: Reset Script + Toggle UI ======
+do
+    local setRow = TabRow(3, "Reset Script")
+    local resetBtn = C("TextButton", {
+        Parent = setRow,
+        Size = UDim2.new(0,140,1,0),
+        Position = UDim2.new(0,130,0,0),
+        BackgroundColor3 = Color3.fromRGB(200,60,60),
+        BorderSizePixel = 0,
+        Text = "Reset All",
+        TextColor3 = Color3.fromRGB(255,255,255),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14
+    }, setRow)
+    C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
 
-knob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingKnob = true
+    local hintLabel = C("TextLabel", {
+        Parent = setRow,
+        Size = UDim2.new(0, 300, 1, 0),
+        Position = UDim2.new(0, 0, 1, 5),
+        BackgroundTransparency = 1,
+        Text = "Phím P toggle toàn bộ UI; Slider hiển thị alpha hiện tại",
+        TextColor3 = Color3.fromRGB(220,220,220),
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, setRow)
+
+    local resetDebounce = false
+    local function resetAll()
+        if resetDebounce then return end
+        resetDebounce = true
+
+        if getgenv()._RESET_DATA then
+            for _, obj in ipairs(getgenv()._RESET_DATA.uiRefs) do 
+                pcall(function() obj:Destroy() end) 
+            end
+            table.clear(getgenv()._RESET_DATA.uiRefs)
+
+            for _, c in ipairs(getgenv()._RESET_DATA.connections) do 
+                pcall(function() c:Disconnect() end) 
+            end
+            table.clear(getgenv()._RESET_DATA.connections)
+
+            for _, t in ipairs(getgenv()._RESET_DATA.threads) do 
+                pcall(function() coroutine.close(t) end) 
+            end
+            table.clear(getgenv()._RESET_DATA.threads)
+        end
+
+        if _BOUND_ACTIONS then
+            for _, name in ipairs(_BOUND_ACTIONS) do 
+                pcall(function() ContextActionService:UnbindAction(name) end) 
+            end
+            table.clear(_BOUND_ACTIONS)
+        end
+
+        -- Huỷ hoặc ẩn UI chính nếu có 
+        if win then
+            pcall(function()
+                win:Destroy()
+            end)
+            win = nil
+        end
+
+        getgenv().MyBanhMi_Running = false
+        flashBtn(resetBtn, "Reset!", 1)
+
+        task.delay(1, function() resetDebounce = false end)
     end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingKnob = false
+
+    resetBtn.MouseButton1Click:Connect(resetAll)
+
+    local uiHidden = false
+    local function toggleUI()
+        if win then
+            uiHidden = not uiHidden
+            if win:IsA("ScreenGui") then
+                win.Enabled = not uiHidden
+            else
+                win.Visible = not uiHidden
+            end
+        elseif type(CreateMainUI) == "function" then
+            win = CreateMainUI()
+            uiHidden = false
+        end
     end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if draggingKnob and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        setAlphaFromX(input.Position.X)
-    end
-end)
-bar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        setAlphaFromX(input.Position.X)
-        draggingKnob = true
-    end
-end)
+
+    ContextActionService:BindAction("ToggleUI_P", function(_, state)
+        if state == Enum.UserInputState.Begin then
+            toggleUI()
+        end
+        return Enum.ContextActionResult.Sink
+    end, false, Enum.KeyCode.P)
+end
 
 local fontRow = TabRow(1, "Font")
 local fontBtn = C("TextButton", { Parent = fontRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Next Font", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 14 }, fontRow)
@@ -427,7 +485,6 @@ minusBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Đảm bảo tốc độ luôn đúng khi speedOn (lưu connection để dọn dẹp sau)
 local speedConn = RunService.RenderStepped:Connect(function()
     if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
         local hum = lp.Character:FindFirstChildOfClass("Humanoid")
@@ -476,7 +533,6 @@ noclipBtn.MouseButton1Click:Connect(function()
     TweenService:Create(noclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = noclip and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
--- assign noclip connection to variable for cleanup
 noclipConn = RunService.Stepped:Connect(function()
     if noclip and lp.Character then
         for _, part in pairs(lp.Character:GetDescendants()) do
@@ -487,7 +543,6 @@ noclipConn = RunService.Stepped:Connect(function()
     end
 end)
 
--- lưu noclipConn để dọn dẹp
 if noclipConn then table.insert(allConns, noclipConn) end
 
 -- =========================
@@ -585,7 +640,6 @@ local function onPlayerCharacterAdded(plr)
     end
 end
 
--- lưu các listener cho mỗi player để có thể disconnect khi cleanup
 for _, plr in ipairs(Players:GetPlayers()) do
     local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
     table.insert(allConns, conn)
@@ -686,12 +740,6 @@ end)
 local flyRow = TabRow(2, "Fly")
 local flyBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
-ContextActionService:BindAction("ToggleFly_F", function(_, state)
-    if state == Enum.UserInputState.Begin then
-        flyBtn:Activate()
-    end
-    return Enum.ContextActionResult.Sink
-end, false, Enum.KeyCode.F)
 local flySpeedLabel = C("TextLabel", { Parent = flyRow, Size = UDim2.new(0,60,1,0), Position = UDim2.new(0,260,0,0), BackgroundTransparency = 1, Text = "Speed: "..flySpeed, TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14 }, flyRow)
 local flyPlusBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,320,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "+", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, flyPlusBtn)
@@ -733,7 +781,6 @@ flyBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- assign fly connection to variable for cleanup
 flyConn = RunService.RenderStepped:Connect(function()
     if flying and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = lp.Character:FindFirstChild("HumanoidRootPart")
@@ -979,8 +1026,7 @@ bringAllBtn.MouseButton1Click:Connect(function()
     flashBtn(bringAllBtn, "Done", 1)
 end)
 
--- ====== Bring Player (improved) ======
--- This handler is used by both the button and the Q hotkey binding.
+-- ====== Bring Player (improved) ====== --
 local bringPlayerDebounce = false
 local function doBringPlayerByName(name)
     if bringPlayerDebounce then return end
@@ -1018,14 +1064,12 @@ local function doBringPlayerByName(name)
         return
     end
 
-    -- place target ~3 studs in front of you (plus small Y offset so they are not stuck in ground)
     local forwardOffset = 3
     local yOffset = 1.2
     local destPos = myHRP.Position + (myHRP.CFrame.LookVector * forwardOffset) + Vector3.new(0, yOffset, 0)
-    local dest = CFrame.new(destPos, destPos + myHRP.CFrame.LookVector) -- face same dir as you
+    local dest = CFrame.new(destPos, destPos + myHRP.CFrame.LookVector)
 
     local ok, res = pcall(function()
-        -- prefer moving the HumanoidRootPart directly
         if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
             target.Character.HumanoidRootPart.CFrame = dest
         elseif target.Character and target.Character.PrimaryPart then
@@ -1038,7 +1082,6 @@ local function doBringPlayerByName(name)
     if ok then
         flashBtn(bringPlayerBtn, "Done", 1)
 
-        -- If ESP tag exists, re-attach its Adornee to avoid weird offset after teleport
         spawn(function()
             pcall(function()
                 local head = target.Character and target.Character:FindFirstChild("Head")
@@ -1062,53 +1105,14 @@ bringPlayerBtn.MouseButton1Click:Connect(function()
     bringBox.Text = ""
 end)
 
--- Bind Q to trigger Bring Player (like F for fly)
-pcall(function()
-    ContextActionService:BindAction("ToggleBring_Q", function(_, state)
-        if state == Enum.UserInputState.Begin then
-            -- when Q pressed, bring nearest player in crosshair or the last typed name
-            -- Strategy: if bringBox has text -> use that; else try to find player under crosshair (ray)
-            if (bringBox.Text or "") ~= "" then
-                doBringPlayerByName(bringBox.Text)
-            else
-                -- raycast from camera to find a player (simple)
-                local cam = workspace.CurrentCamera
-                if cam then
-                    local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
-                    local part, pos = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
-                    if part then
-                        local model = part:FindFirstAncestorOfClass("Model")
-                        if model then
-                            -- try to find player owning that model
-                            for _, plr in ipairs(Players:GetPlayers()) do
-                                if plr.Character == model and plr ~= lp then
-                                    doBringPlayerByName(plr.Name)
-                                    break
-                                end
-                            end
-                        end
-                    else
-                        -- fallback: bring first partial match from text box (none) -> flash
-                        flashBtn(bringPlayerBtn, "No Target", 1)
-                    end
-                end
-            end
-        end
-        return Enum.ContextActionResult.Sink
-    end, false, Enum.KeyCode.Q)
-end)
-
--- As an additional fallback (some games block BindAction), also listen to InputBegan for Q
 local inputQConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.Q then
-        -- mimic clicking bringPlayerBtn: use bringBox text
         local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
         if name ~= "" then
             doBringPlayerByName(name)
             bringBox.Text = ""
         else
-            -- try ray fallback
             local cam = workspace.CurrentCamera
             if cam then
                 local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
@@ -1116,11 +1120,16 @@ local inputQConn = UserInputService.InputBegan:Connect(function(input, gameProce
                 if part then
                     local model = part:FindFirstAncestorOfClass("Model")
                     if model then
+                        local found = false
                         for _, plr in ipairs(Players:GetPlayers()) do
                             if plr.Character == model and plr ~= lp then
                                 doBringPlayerByName(plr.Name)
+                                found = true
                                 break
                             end
+                        end
+                        if not found then
+                            flashBtn(bringPlayerBtn, "No Target", 1)
                         end
                     else
                         flashBtn(bringPlayerBtn, "No Target", 1)
@@ -1132,32 +1141,29 @@ local inputQConn = UserInputService.InputBegan:Connect(function(input, gameProce
         end
     end
 end)
+
 table.insert(allConns, inputQConn)
+
 
 -- Apply default theme
 applyTheme("Dark")
 
--- Safety: cleanup ESP and restore transparency, destroy fly BV if any
 local function cleanupAll()
-    -- remove ESP objects
     for plr, _ in pairs(espObjects) do
         removeESPForPlayer(plr)
     end
 
-    -- restore transparency for parts
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             pcall(function() obj.LocalTransparencyModifier = 0 end)
         end
     end
 
-    -- destroy BV
     if bv then
         pcall(function() bv:Destroy() end)
         bv = nil
     end
 
-    -- disconnect specific conns
     if flyConn and flyConn.Connected then
         pcall(function() flyConn:Disconnect() end)
         flyConn = nil
@@ -1167,7 +1173,6 @@ local function cleanupAll()
         noclipConn = nil
     end
 
-    -- disconnect any tracked conns in allConns
     for _, c in ipairs(allConns) do
         if c and c.Connected then
             pcall(function() c:Disconnect() end)
@@ -1175,12 +1180,9 @@ local function cleanupAll()
     end
     table.clear(allConns)
 
-    -- unbind actions (safe)
     pcall(function() ContextActionService:UnbindAction("ToggleMenu_RShift") end)
-    pcall(function() ContextActionService:UnbindAction("ToggleFly_F") end)
     pcall(function() ContextActionService:UnbindAction("ToggleBring_Q") end)
 
-    -- restore humanoid states
     if lp and lp.Character then
         local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
         if humanoid then
@@ -1192,7 +1194,6 @@ local function cleanupAll()
         end
     end
 
-    -- reset internal flags
     speedOn = false
     jumpEnabled = false
     infJump = false
@@ -1201,7 +1202,6 @@ local function cleanupAll()
     xray = false
     flying = false
 
-    -- destroy GUI safely
     if screen and screen.Parent then
         pcall(function() screen:Destroy() end)
     end
@@ -1238,29 +1238,26 @@ if charRemovingConn then table.insert(allConns, charRemovingConn) end
 if lp.Character then onCharacterAdded(lp.Character) end
 
 -- ====== SETTING TAB: Reset Script (your button, improved) ======
-local setRow = TabRow(3, "Reset Script")
-local resetBtn = C("TextButton", {
+win = CreateMainUI()
+createTabs()
+do
+    local setRow = TabRow(3, "Reset Script")
+end
+ContextActionService:BindAction("ToggleUI_P", function(_, state)
+    if state == Enum.UserInputState.Begin then toggleUI() end
+    return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.P)
+
+rebindAllKeyActions()
+
+local hintLabel = C("TextLabel", {
     Parent = setRow,
-    Size = UDim2.new(0,140,1,0),
-    Position = UDim2.new(0,130,0,0),
-    BackgroundColor3 = Color3.fromRGB(200,60,60),
-    BorderSizePixel = 0,
-    Text = "Reset All",
-    TextColor3 = Color3.fromRGB(255,255,255),
-    Font = Enum.Font.GothamBold,
-    TextSize = 14
+    Size = UDim2.new(1,0,0,18),
+    Position = UDim2.new(0,0,1,2),
+    BackgroundTransparency = 1,
+    Text = "Reset All: xóa UI, connections, coroutine. Close (P) toggle UI, Q: Bring Player",
+    TextColor3 = Color3.fromRGB(220,220,230),
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left
 }, setRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
-
-local resetDebounce = false
-resetBtn.MouseButton1Click:Connect(function()
-    if resetDebounce then return end
-    resetDebounce = true
-    cleanupAll()
-    flashBtn(resetBtn, "Reset!", 1)
-    task.delay(1, function() resetDebounce = false end)
-end)
-
-game:BindToClose(function()
-    cleanupAll()
-end)
