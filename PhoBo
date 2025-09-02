@@ -71,7 +71,7 @@ local toggleBtn = C("TextButton", {
 C("UICorner", { CornerRadius = UDim.new(0,10) }, toggleBtn)
 
 -- Tabs setup
-local tabs = { "Main", "Misc" }
+local tabs = { "Main", "Misc", "Setting" }
 local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,36), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
 local tabButtons = {}
 local tabContents = {}
@@ -141,6 +141,9 @@ local flySpeed = 60
 -- connection handles for cleanup
 local flyConn = nil
 local noclipConn = nil
+
+-- table để track thêm connections do bạn tạo (nếu muốn sau này)
+local allConns = {}
 
 -- helper: tween all TextLabel/TextButton except toggleBtn
 local function tweenAllTexts(target)
@@ -364,6 +367,36 @@ local speedRow = TabRow(1, "Speed")
 local speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,72,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBtn)
 local speedNum = C("TextLabel", { Parent = speedRow, Size = UDim2.new(0,50,1,0), Position = UDim2.new(0,210,0,0), BackgroundTransparency = 1, Text = tostring(speedValue), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14 }, speedRow)
+local speedBox = C("TextBox", {
+    Parent = speedRow,
+    Size = UDim2.new(0,38,1,0),
+    Position = UDim2.new(0,325,0,0),
+    BackgroundColor3 = Color3.fromRGB(90,90,100),
+    BorderSizePixel = 0,
+    Text = "",
+    PlaceholderText = "Set",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.Gotham,
+    TextSize = 14,
+    ClearTextOnFocus = true
+}, speedRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBox)
+
+speedBox.FocusLost:Connect(function()
+    local val = tonumber(speedBox.Text)
+    speedBox.Text = ""
+    if val and val >= 16 and val <= 500 then
+        speedValue = math.floor(val)
+        speedNum.Text = tostring(speedValue)
+        if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+            lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
+        end
+    else
+        speedBox.PlaceholderText = "Err"
+        delay(1, function() speedBox.PlaceholderText = "Set" end)
+    end
+end)
+
 local plusBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,265,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "+", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, plusBtn)
 local minusBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,295,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "-", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
@@ -389,6 +422,16 @@ minusBtn.MouseButton1Click:Connect(function()
     speedNum.Text = tostring(speedValue)
     if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
         lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
+    end
+end)
+
+-- Đảm bảo tốc độ luôn đúng khi speedOn
+RunService.RenderStepped:Connect(function()
+    if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+        local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+        if hum.WalkSpeed ~= speedValue then
+            hum.WalkSpeed = speedValue
+        end
     end
 end)
 
@@ -454,14 +497,23 @@ local function safeDestroy(o)
     end
 end
 
+local espColor = Color3.fromRGB(255,85,0)
+local function getPlayerESPColor(plr)
+    if plr.Team and plr.Team.TeamColor then
+        return plr.Team.TeamColor.Color
+    end
+    return espColor
+end
+
 local function createESPForCharacter(plr, char)
     if plr == lp then return end
     if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Head") then return end
     if espObjects[plr] then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
+    local color = getPlayerESPColor(plr)
     local box = Instance.new("BoxHandleAdornment")
     box.Size = Vector3.new(4,6,2)
-    box.Color3 = Color3.fromRGB(255,85,0)
+    box.Color3 = color
     box.Transparency = 0.6
     box.ZIndex = 10
     box.AlwaysOnTop = true
@@ -479,7 +531,7 @@ local function createESPForCharacter(plr, char)
     label.BackgroundTransparency = 1
     label.Size = UDim2.new(1,0,1,0)
     label.Text = plr.Name
-    label.TextColor3 = Color3.fromRGB(255,85,0)
+    label.TextColor3 = color
     label.Font = Enum.Font.GothamBold
     label.TextSize = 14
     label.Parent = tag
@@ -621,6 +673,26 @@ end)
 local flyRow = TabRow(2, "Fly")
 local flyBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
+ContextActionService:BindAction("ToggleFly_F", function(_, state)
+    if state == Enum.UserInputState.Begin then
+        flyBtn:Activate()
+    end
+    return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.F)
+local flySpeedLabel = C("TextLabel", { Parent = flyRow, Size = UDim2.new(0,60,1,0), Position = UDim2.new(0,260,0,0), BackgroundTransparency = 1, Text = "Speed: "..flySpeed, TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14 }, flyRow)
+local flyPlusBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,320,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "+", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, flyPlusBtn)
+local flyMinusBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,350,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "-", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, flyMinusBtn)
+
+flyPlusBtn.MouseButton1Click:Connect(function()
+    flySpeed = math.clamp(flySpeed + 10, 20, 200)
+    flySpeedLabel.Text = "Speed: "..flySpeed
+end)
+flyMinusBtn.MouseButton1Click:Connect(function()
+    flySpeed = math.clamp(flySpeed - 10, 20, 200)
+    flySpeedLabel.Text = "Speed: "..flySpeed
+end)
 
 flyBtn.MouseButton1Click:Connect(function()
     flying = not flying
@@ -650,7 +722,17 @@ end)
 
 -- assign fly connection to variable for cleanup
 flyConn = RunService.RenderStepped:Connect(function()
-    if flying and bv and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+    if flying and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = lp.Character:FindFirstChild("HumanoidRootPart")
+        -- Auto re-create BodyVelocity if missing
+        if not bv or bv.Parent ~= hrp then
+            if bv then pcall(function() bv:Destroy() end) end
+            bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(1e5,1e5,1e5)
+            bv.Velocity = Vector3.new(0,0,0)
+            bv.Parent = hrp
+        end
+
         local cam = workspace.CurrentCamera
         local moveDir = Vector3.new(0,0,0)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
@@ -733,7 +815,19 @@ local bringAllBtn = C("TextButton", {
     Font = Enum.Font.GothamBold,
     TextSize = 13
 }, btnFrame)
+local bringPlayerBtn = C("TextButton", {
+    Parent = btnFrame,
+    Size = UDim2.new(1,0,0.5,-2),
+    BackgroundColor3 = Color3.fromRGB(90,90,100),
+    BorderSizePixel = 0,
+    Text = "Bring Player",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.GothamBold,
+    TextSize = 13
+}, btnFrame)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, bringPlayerBtn)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, bringAllBtn)
+
 
 local function findAllByName(name)
     local lower = (name or ""):lower()
@@ -872,31 +966,90 @@ bringAllBtn.MouseButton1Click:Connect(function()
     flashBtn(bringAllBtn, "Done", 1)
 end)
 
+-- Bring Player (teleport player khác về vị trí của bạn)
+bringPlayerBtn.MouseButton1Click:Connect(function()
+    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
+    if name == "" then
+        flashBtn(bringPlayerBtn, "Empty", 0.8)
+        return
+    end
+
+    -- Tìm player theo tên (không phải chính mình)
+    local function findPlayerByPartial(namePart)
+        namePart = string.lower(namePart or "")
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if string.find(string.lower(plr.Name), namePart, 1, true) and plr ~= lp then
+                return plr
+            end
+        end
+        return nil
+    end
+
+    local target = findPlayerByPartial(name)
+    if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+        flashBtn(bringPlayerBtn, "Not Found", 1.2)
+        return
+    end
+
+    local myHRP = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then
+        flashBtn(bringPlayerBtn, "No HRP", 1.2)
+        return
+    end
+
+    -- Teleport player mục tiêu đến vị trí của bạn (offset trên đầu 4 studs)
+    local dest = myHRP.CFrame * CFrame.new(0,4,0)
+    local ok, res = pcall(function()
+        target.Character.HumanoidRootPart.CFrame = dest
+    end)
+    if ok then
+        flashBtn(bringPlayerBtn, "Done", 1)
+    else
+        flashBtn(bringPlayerBtn, "Fail", 1.2)
+        warn("[BringPlayer] Game không cho phép di chuyển player khác hoặc đã bị chặn! Thử ở game khác hoặc kiểm tra anti-cheat.")
+    end
+end)
+
 -- Apply default theme
 applyTheme("Dark")
 
 -- Safety: cleanup ESP and restore transparency, destroy fly BV if any
 local function cleanupAll()
+    -- remove ESP objects
     for plr, _ in pairs(espObjects) do
         removeESPForPlayer(plr)
     end
+    -- restore transparency for parts
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             pcall(function() obj.LocalTransparencyModifier = 0 end)
         end
     end
+    -- destroy BV
     if bv then
         pcall(function() bv:Destroy() end)
         bv = nil
     end
+    -- disconnect specific conns
     if flyConn and flyConn.Connected then
-        flyConn:Disconnect()
+        pcall(function() flyConn:Disconnect() end)
         flyConn = nil
     end
     if noclipConn and noclipConn.Connected then
-        noclipConn:Disconnect()
+        pcall(function() noclipConn:Disconnect() end)
         noclipConn = nil
     end
+    -- disconnect any tracked conns in allConns
+    for _, c in ipairs(allConns) do
+        if c and c.Connected then
+            pcall(function() c:Disconnect() end)
+        end
+    end
+    table.clear(allConns)
+    -- unbind actions (safe)
+    pcall(function() ContextActionService:UnbindAction("ToggleMenu_RShift") end)
+    pcall(function() ContextActionService:UnbindAction("ToggleFly_F") end)
+    -- restore humanoid states
     if lp.Character then
         local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
         if humanoid then
@@ -906,6 +1059,18 @@ local function cleanupAll()
                 humanoid.PlatformStand = false
             end)
         end
+    end
+    -- reset internal flags (optional but helpful)
+    speedOn = false
+    jumpEnabled = false
+    infJump = false
+    noclip = false
+    esp = false
+    xray = false
+    flying = false
+    -- destroy GUI
+    if screen and screen.Parent then
+        pcall(function() screen:Destroy() end)
     end
 end
 
@@ -935,6 +1100,31 @@ end
 lp.CharacterAdded:Connect(onCharacterAdded)
 lp.CharacterRemoving:Connect(onCharacterRemoving)
 if lp.Character then onCharacterAdded(lp.Character) end
+
+-- ====== SETTING TAB: Reset Script (your button, improved) ======
+local setRow = TabRow(3, "Reset Script")
+local resetBtn = C("TextButton", {
+    Parent = setRow,
+    Size = UDim2.new(0,140,1,0),
+    Position = UDim2.new(0,130,0,0),
+    BackgroundColor3 = Color3.fromRGB(200,60,60),
+    BorderSizePixel = 0,
+    Text = "Reset All",
+    TextColor3 = Color3.fromRGB(255,255,255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14
+}, setRow)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
+
+-- Anti-spam debounce
+local resetDebounce = false
+resetBtn.MouseButton1Click:Connect(function()
+    if resetDebounce then return end
+    resetDebounce = true
+    cleanupAll()
+    flashBtn(resetBtn, "Reset!", 1)
+    task.delay(1, function() resetDebounce = false end)
+end)
 
 -- Bind cleanup to close
 game:BindToClose(function()
