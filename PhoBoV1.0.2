@@ -23,6 +23,23 @@ local function C(class, props, parent)
     if parent then obj.Parent = parent end
     return obj
 end
+-- ====== PROTECTION: basic anti-theft (edit ALLOWED_USER_IDS) ======
+local PROTECT = true
+local ALLOWED_USER_IDS = { 
+	9002922877,
+    7651295755,
+    1658489525,
+}
+if PROTECT then
+    local allowed = false
+    for _, id in ipairs(ALLOWED_USER_IDS) do
+        if id == lp.UserId then allowed = true; break end
+    end
+    if not allowed then
+        warn("[MyBanhMi] Unauthorized user detected (UserId=" .. tostring(lp.UserId) .. "). Script will stop.")
+        return
+    end
+end
 
 -- Themes & Fonts (modified colors)
 local Themes = {
