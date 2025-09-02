@@ -1216,10 +1216,42 @@ do
         uiRefs      = {}  -- GUI chính (ScreenGui/Frame)
     }
 
-    -- ===== nút Reset All =====
+    -- ====== Hàm resetAll ======
+    local function resetAll()
+        -- Destroy tất cả GUI
+        for _, obj in ipairs(_RESET_DATA.uiRefs) do
+            pcall(function() obj:Destroy() end)
+        end
+        table.clear(_RESET_DATA.uiRefs)
+
+        -- Disconnect tất cả connections
+        for _, c in ipairs(_RESET_DATA.connections) do
+            pcall(function() c:Disconnect() end)
+        end
+        table.clear(_RESET_DATA.connections)
+
+        -- Close tất cả threads
+        for _, t in ipairs(_RESET_DATA.threads) do
+            pcall(function() coroutine.close(t) end)
+        end
+        table.clear(_RESET_DATA.threads)
+
+        -- Unbind tất cả keybinds
+        if _BOUND_ACTIONS then
+            for _, name in ipairs(_BOUND_ACTIONS) do
+                pcall(function() ContextActionService:UnbindAction(name) end)
+            end
+            table.clear(_BOUND_ACTIONS)
+        end
+
+        -- Reset flags
+        getgenv().MyBanhMi_Running = false
+    end
+
+    -- ====== Nút Reset All ======
     local resetBtn = C("TextButton", {
         Parent = setRow,
-        Size = UDim2.new(0,140,0,30),
+        Size = UDim2.new(0,140,1,0),
         Position = UDim2.new(0,130,0,0),
         BackgroundColor3 = Color3.fromRGB(200,60,60),
         BorderSizePixel = 0,
@@ -1241,48 +1273,16 @@ do
     end
 
     local resetDebounce = false
-
-    -- ===== hàm Reset All triệt để =====
-    local function resetAll()
-        -- Destroy tất cả GUI
-        for _, obj in ipairs(_RESET_DATA.uiRefs) do
-            pcall(function() obj:Destroy() end)
-        end
-        table.clear(_RESET_DATA.uiRefs)
-
-        -- Disconnect tất cả connection
-        for _, c in ipairs(_RESET_DATA.connections) do
-            pcall(function() c:Disconnect() end)
-        end
-        table.clear(_RESET_DATA.connections)
-
-        -- Close tất cả coroutine
-        for _, t in ipairs(_RESET_DATA.threads) do
-            pcall(function() coroutine.close(t) end)
-        end
-        table.clear(_RESET_DATA.threads)
-
-        -- Unbind tất cả keybinds
-        if _BOUND_ACTIONS then
-            for _, name in ipairs(_BOUND_ACTIONS) do
-                pcall(function() ContextActionService:UnbindAction(name) end)
-            end
-            table.clear(_BOUND_ACTIONS)
-        end
-
-        -- Reset flags
-        getgenv().MyBanhMi_Running = false
-    end
-
-    -- ===== khi nhấn Reset All =====
     resetBtn.MouseButton1Click:Connect(function()
         if resetDebounce then return end
         resetDebounce = true
 
         flashBtn(resetBtn, "Reset!", 0.9)
+
+        -- thực hiện reset
         resetAll()
 
-        -- Tạo lại UI
+        -- tạo lại UI
         if type(CreateMainUI) == "function" then
             local newWin = CreateMainUI()
             if newWin then
@@ -1296,25 +1296,11 @@ do
         task.delay(1, function() resetDebounce = false end)
     end)
 
-    -- ====== Ghi chú Keybinds ngay dưới Reset Script ======
-    local notes = {
-        "📌 Keybinds:",
-        "P = Close UI (xoá & tạo lại UI)",
-        "RightShift = Toggle UI (ẩn/hiện)",
-        "Q = Bring Player",
-        "Reset All = Xoá mọi hành vi/script đang chạy"
-    }
-
-    local noteLabel = C("TextLabel", {
-        Parent = setRow,
-        Size = UDim2.new(0, 400, 0, #notes * 18),
-        Position = UDim2.new(0, 0, 0, 35), -- ngay dưới Reset Script
-        BackgroundTransparency = 1,
-        Text = table.concat(notes, "\n"),
-        TextColor3 = Color3.fromRGB(200,200,200),
-        Font = Enum.Font.Code,
-        TextSize = 14,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Top
-    }, setRow)
+    -- ====== Ghi chú keybind ======
+    local hintRow, hintLbl = TabRow(3, "Hotkey hint")
+    hintLbl.Text = string.format("ToggleUI: %s | Close: %s | Bring: %s",
+        keybinds.ToggleUI.Name,
+        keybinds.Close.Name,
+        keybinds.Bring.Name
+    )
 end
