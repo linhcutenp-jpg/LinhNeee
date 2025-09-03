@@ -298,98 +298,92 @@ for name, _ in pairs(Themes) do
     b.MouseButton1Click:Connect(function() applyTheme(name) end)
 end
 
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+do
+    local transRow = TabRow(3, "Transparency")
+    local slider = C("Frame", {Parent = transRow, Size = UDim2.new(1,-180,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1}, transRow)
+    local bar = C("Frame", {Parent = slider, Size = UDim2.new(1,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0}, slider)
+    C("UICorner", {CornerRadius = UDim.new(1,0)}, bar)
+    local knob = C("Frame", {Parent = slider, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0,0,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0}, slider)
+    C("UICorner", {CornerRadius = UDim.new(1,0)}, knob)
 
-local win = game.Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("YourMenuFrame")
-
--- Hàm update độ trong suốt
-local function updateMenuTransparency(value)
-    local transparency = value * 0.8 -- max 0.8
-    win.BackgroundTransparency = transparency
-    for _, child in pairs(win:GetChildren()) do
-        if child:IsA("GuiObject") then
-            child.BackgroundTransparency = transparency
-            if child:IsA("TextLabel") or child:IsA("TextButton") then
-                child.TextTransparency = value
-            end
-        end
-    end
-end
-
--- Hàm tạo slider
-local function CreateSlider(parent)
-    local slider = Instance.new("Frame")
-    slider.Parent = parent
-    slider.Size = UDim2.new(1, -130, 1, 0)
-    slider.Position = UDim2.new(0, 130, 0, 0)
-    slider.BackgroundTransparency = 1
-
-    local bar = Instance.new("Frame")
-    bar.Parent = slider
-    bar.Size = UDim2.new(1, 0, 0, 6)
-    bar.Position = UDim2.new(0, 0, 0.5, -3)
-    bar.BackgroundColor3 = Color3.fromRGB(90, 90, 100)
-    bar.BorderSizePixel = 0
-    local barCorner = Instance.new("UICorner")
-    barCorner.CornerRadius = UDim.new(1, 0)
-    barCorner.Parent = bar
-
-    local knob = Instance.new("Frame")
-    knob.Parent = slider
-    knob.Size = UDim2.new(0, 14, 0, 14)
-    knob.Position = UDim2.new(0, 0, 0.5, -7)
-    knob.BackgroundColor3 = Color3.fromRGB(230, 230, 235)
-    knob.BorderSizePixel = 0
-    knob.Active = true
-    local knobCorner = Instance.new("UICorner")
-    knobCorner.CornerRadius = UDim.new(1, 0)
-    knobCorner.Parent = knob
+    local percLabel = C("TextLabel", {Parent = transRow, Size = UDim2.new(0,60,1,0), Position = UDim2.new(1,-65,0,0), BackgroundTransparency = 1, Text = "0%", TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14}, transRow)
 
     local dragging = false
 
-    local function updateKnobPosition(x)
-        local sliderPosX = slider.AbsolutePosition.X
-        local sliderWidth = slider.AbsoluteSize.X
-        if sliderWidth == 0 then return end
-
-        local relativeX = math.clamp(x - sliderPosX, 0, sliderWidth)
-        knob.Position = UDim2.new(0, relativeX - knob.AbsoluteSize.X/2, 0.5, -knob.AbsoluteSize.Y/2)
-
-        local value = relativeX / sliderWidth
-        updateMenuTransparency(value)
+    local function updateMenuTransparency(value)
+        local alpha = value * 1
+        if win then
+            win.BackgroundTransparency = alpha
+        end
+        if header then
+            header.BackgroundTransparency = math.clamp(alpha - 0.1, 0, 1)
+        end
+        for _, v in pairs(win:GetDescendants()) do
+            if (v:IsA("TextLabel") or v:IsA("TextButton")) and v ~= toggleBtn then
+                pcall(function() v.TextTransparency = value end)
+            end
+            if v:IsA("GuiObject") and v ~= win and v ~= header then
+            end
+        end
+        -- update percLabel text
+        percLabel.Text = tostring(math.floor(value * 100)) .. "%"
+        -- adjust stroke thickness visually
+        if stroke then
+            stroke.Thickness = 2 * (1 - value*0.6) + 0.5
+        end
     end
 
-    -- Kéo knob
-    knob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    local function setAlphaFromX(x)
+        if not bar or not knob then return end
+        local barPos = bar.AbsolutePosition.X
+        local barSize = bar.AbsoluteSize.X
+        if barSize == 0 then return end
+        local rel = math.clamp((x - barPos) / barSize, 0, 1)
+        knob.Position = UDim2.new(rel, -7, 0.5, -7)
+        updateMenuTransparency(rel)
+    end
+
+    spawn(function()
+        local tries = 0
+        while (bar.AbsoluteSize.X == 0) and tries < 50 do
+            tries = tries + 1
+            task.wait(0.02)
+        end
+        local initRel = 0
+        local barPos = bar.AbsolutePosition.X
+        local barSize = bar.AbsoluteSize.X
+        if barSize > 0 then
+            knob.Position = UDim2.new(initRel, -7, 0.5, -7)
+            updateMenuTransparency(initRel)
+        end
+    end)
+
+    table.insert(allConns, knob.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
         end
-    end)
+    end))
 
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            updateKnobPosition(input.Position.X)
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    table.insert(allConns, UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
-    end)
+    end))
 
-    return slider, knob
+    table.insert(allConns, UserInputService.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            -- for Touch and MouseMovement, use i.Position.X
+            setAlphaFromX(i.Position.X)
+        end
+    end))
+
+    table.insert(allConns, bar.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            setAlphaFromX(i.Position.X)
+            dragging = true
+        end
+    end))
 end
-local transRow = TabRow(3, "Transparency")
-local slider, knob = CreateSlider(transRow)
-
-
 -- ====== SETTING TAB: Reset Script + Toggle UI ======
 do
     local setRow = TabRow(3, "Reset Script")
