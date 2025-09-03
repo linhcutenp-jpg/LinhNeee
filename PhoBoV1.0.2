@@ -24,7 +24,6 @@ local function C(class, props, parent)
     if parent then obj.Parent = parent end
     return obj
 end
--- ====== PROTECTION ======
 local PROTECT = true
 local ALLOWED_USER_IDS = { 
 	9002922877,
@@ -42,7 +41,6 @@ if PROTECT then
     end
 end
 
--- Themes & Fonts
 local Themes = {
     Dark = { Primary = Color3.fromRGB(24,24,30), Accent = Color3.fromRGB(145,145,145), Text = Color3.fromRGB(235,240,235), ButtonText = Color3.fromRGB(235,235,240) },
     Pink = { Primary = Color3.fromRGB(255,187,225), Accent = Color3.fromRGB(198,117,225), Text = Color3.fromRGB(50,50,50), ButtonText = Color3.fromRGB(240,240,240) },
@@ -91,7 +89,6 @@ local toggleBtn = C("TextButton", {
 }, header)
 C("UICorner", { CornerRadius = UDim.new(0,10) }, toggleBtn)
 
--- Tabs setup
 local tabs = { "Main", "Misc", "Setting" }
 local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,36), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
 local tabButtons = {}
@@ -279,11 +276,6 @@ local function TabRow(tabIndex, labelText)
     return row, lbl
 end
 
--- =========================
--- MAIN TAB FEATURES
--- =========================
-
--- Theme + Theme buttons
 local themeRow = TabRow(1, "Theme")
 local themeHolder = C("Frame", { Parent = themeRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 }, themeRow)
 local flow = C("UIGridLayout", { CellSize = UDim2.fromOffset(60,26), CellPadding = UDim2.fromOffset(6,6), FillDirectionMaxCells = 5, SortOrder = Enum.SortOrder.LayoutOrder }, themeHolder)
@@ -624,10 +616,6 @@ end)
 
 if noclipConn then table.insert(allConns, noclipConn) end
 
--- =========================
--- MISC TAB FEATURES
--- =========================
-
 local espRow = TabRow(2, "ESP")
 local espBtn = C("TextButton", { Parent = espRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, espRow)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, espBtn)
@@ -899,7 +887,6 @@ flyConn = RunService.RenderStepped:Connect(function()
 end)
 if flyConn then table.insert(allConns, flyConn) end
 
--- ====== Bring Part với 2 nút dọc ======
 local bringRow = TabRow(2, "Bring Part")
 local bringBox = C("TextBox", {
     Parent = bringRow,
@@ -1103,7 +1090,6 @@ bringAllBtn.MouseButton1Click:Connect(function()
     flashBtn(bringAllBtn, "Done", 1)
 end)
 
--- ====== Bring Player (improved) ====== --
 local bringPlayerDebounce = false
 local function doBringPlayerByName(name)
     if bringPlayerDebounce then return end
@@ -1221,8 +1207,6 @@ end)
 
 table.insert(allConns, inputQConn)
 
-
--- Apply default theme
 applyTheme("Dark")
 
 local function cleanupAll()
@@ -1314,7 +1298,6 @@ if charRemovingConn then table.insert(allConns, charRemovingConn) end
 
 if lp.Character then onCharacterAdded(lp.Character) end
 
--- ====== SETTING TAB ======
 win = CreateMainUI()
 createTabs()
 do
