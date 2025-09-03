@@ -1,0 +1,209 @@
+-- SAFE CLEANUP SCRIPT (LocalPlayer only)
+-- Mục tiêu: remove UI + connections created bởi script/inject, restore local character state
+-- KHÔNG xóa GUI của game (cố gắng thật thận trọng)
+
+local Players = game:GetService("Players")
+local ContextActionService = game:GetService("ContextActionService")
+local RunService = game:GetService("RunService")
+
+local lp = Players.LocalPlayer
+if not lp then return end
+local pg = lp:WaitForChild("PlayerGui")
+
+local performed = {} -- log actions
+
+local function safeDestroy(obj)
+    if not obj then return false end
+    local ok, err = pcall(function() obj:Destroy() end)
+    if ok then
+        table.insert(performed, ("Destroyed: %s"):format(tostring(obj:GetFullName())))
+    else
+        table.insert(performed, ("Fail destroy: %s - %s"):format(tostring(obj:GetFullName()), tostring(err)))
+    end
+    return ok
+end
+
+local function safeDisconnect(conn)
+    if not conn then return false end
+    local ok, err = pcall(function() conn:Disconnect() end)
+    if ok then
+        table.insert(performed, ("Disconnected connection"))
+    else
+        table.insert(performed, ("Fail disconnect: %s"):format(tostring(err)))
+    end
+    return ok
+end
+
+local function safeUnbind(name)
+    if not name then return false end
+    local ok, err = pcall(function() ContextActionService:UnbindAction(name) end)
+    if ok then
+        table.insert(performed, ("Unbound action: %s"):format(tostring(name)))
+    else
+        table.insert(performed, ("Fail unbind action %s: %s"):format(tostring(name), tostring(err)))
+    end
+    return ok
+end
+
+-- 1) Destroy GUIs recorded in common globals (safe, only objects recorded by scripts)
+local function destroyRecordedUI()
+    local lists = {
+        getgenv() and getgenv()._RESET_DATA and getgenv()._RESET_DATA.uiRefs,
+        getgenv() and getgenv().uiRefs,
+        _G and _G.uiRefs,
+    }
+    for _, list in ipairs(lists) do
+        if type(list) == "table" then
+            for _, obj in ipairs(list) do
+                if typeof(obj) == "Instance" then
+                    safeDestroy(obj)
+                end
+            end
+        end
+    end
+end
+
+-- 2) Destroy known-named GUIs (common names used by injected menus)
+local function destroyKnownNamedGUIs()
+    local knownNames = {
+        "MenuUI", "MyBanhMiMenu", "InjectNotif", "InjectNoti", "XenoNotif", "InjectUI", "ScriptUI", "MyScriptUI",
+        "Menu", "InjectedMenu"
+    }
+    for _, name in ipairs(knownNames) do
+        local g = pg:FindFirstChild(name)
+        if g then
+            safeDestroy(g)
+        end
+    end
+
+    -- Also try to destroy any ScreenGui that obviously looks like injected (heuristic)
+    for _, gui in ipairs(pg:GetChildren()) do
+        if gui:IsA("ScreenGui") then
+            local n = gui.Name:lower()
+            if n:find("inject") or n:find("menu") or n:find("script") or n:find("xeno") or n:find("mybanhmi") then
+                safeDestroy(gui)
+            end
+        end
+    end
+end
+
+-- 3) Disconnect connections stored in globals
+local function disconnectRecordedConns()
+    local connLists = {
+        getgenv() and getgenv()._RESET_DATA and getgenv()._RESET_DATA.connections,
+        getgenv() and getgenv().connections,
+        getgenv() and getgenv().allConns,
+        _G and _G.allConns,
+        _G and _G.connections
+    }
+    for _, lst in ipairs(connLists) do
+        if type(lst) == "table" then
+            for _, c in ipairs(lst) do
+                pcall(function() if c and c.Disconnect then c:Disconnect() end end)
+            end
+        end
+    end
+    -- clear those globals if present
+    pcall(function() if getgenv()._RESET_DATA and type(getgenv()._RESET_DATA.connections) == "table" then table.clear(getgenv()._RESET_DATA.connections) end end)
+    pcall(function() if type(getgenv().connections) == "table" then table.clear(getgenv().connections) end end)
+    pcall(function() getgenv().allConns = nil end)
+    pcall(function() _G.allConns = nil end)
+end
+
+-- 4) Unbind actions recorded (common pattern)
+local function unbindRecordedActions()
+    pcall(function()
+        if type(_BOUND_ACTIONS) == "table" then
+            for _, name in ipairs(_BOUND_ACTIONS) do
+                safeUnbind(name)
+            end
+            _BOUND_ACTIONS = nil
+        end
+    end)
+    -- try some common names used in script
+    local common = {"ToggleUI_P", "ToggleMenu_RShift", "ToggleMenu_P", "MyMenu_Toggle"}
+    for _, name in ipairs(common) do
+        pcall(function() ContextActionService:UnbindAction(name) end)
+    end
+end
+
+-- 5) Attempt to stop coroutines recorded in getgenv._RESET_DATA.threads
+local function closeRecordedThreads()
+    local threads = getgenv() and getgenv()._RESET_DATA and getgenv()._RESET_DATA.threads
+    if type(threads) == "table" then
+        for _, th in ipairs(threads) do
+            pcall(function() coroutine.close(th) end)
+        end
+        pcall(function() table.clear(getgenv()._RESET_DATA.threads) end)
+    end
+end
+
+-- 6) Restore local character state (WalkSpeed, JumpPower, CanCollide, remove BV/Force used for fly)
+local function restoreCharacter()
+    local char = lp.Character or lp.CharacterAdded:Wait()
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("LowerTorso")
+    if humanoid then
+        -- typical defaults (game default could differ; 16 and 50 are common defaults)
+        pcall(function() humanoid.WalkSpeed = 16 end)
+        pcall(function() humanoid.JumpPower = 50 end)
+        pcall(function() humanoid.UseJumpPower = true end)
+        table.insert(performed, "Restored Humanoid WalkSpeed/JumpPower")
+    end
+
+    -- Re-enable collisions for all parts in the character
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            pcall(function() part.CanCollide = true end)
+        end
+    end
+    table.insert(performed, "Re-enabled CanCollide on character parts (best-effort)")
+
+    -- Remove common fly objects (BodyVelocity / VectorForce / BodyForce) parented to root
+    if root then
+        for _, child in ipairs(root:GetChildren()) do
+            if child:IsA("BodyVelocity") or child:IsA("BodyForce") or child:IsA("VectorForce") or child:IsA("BodyMover") then
+                pcall(function() child:Destroy() end)
+                table.insert(performed, ("Removed fly-force: %s"):format(tostring(child.ClassName)))
+            end
+        end
+    end
+end
+
+-- 7) Stop any local RunService connections commonly stored
+local function stopCommonRunConnections()
+    -- If script saved run connections in globals, attempt to disconnect
+    local names = {"speedConn", "noclipConn", "flyConn", "jumpConn"}
+    for _, n in ipairs(names) do
+        local c = getgenv() and getgenv()[n] or _G[n]
+        if c then pcall(function() if c.Disconnect then c:Disconnect() end end) end
+    end
+end
+
+-- 8) Final cleanup & clear some globals
+local function finalClear()
+    pcall(function() getgenv().MyBanhMi_Running = false end)
+    pcall(function() getgenv()._MENU_OPEN = false end)
+    pcall(function() _G.uiRefs = nil end)
+    pcall(function() getgenv().uiRefs = nil end)
+    pcall(function() getgenv()._RESET_DATA = nil end)
+    pcall(function() _BOUND_ACTIONS = nil end)
+end
+
+-- RUN cleanup steps (in order)
+destroyRecordedUI()
+destroyKnownNamedGUIs()
+disconnectRecordedConns()
+unbindRecordedActions()
+closeRecordedThreads()
+restoreCharacter()
+stopCommonRunConnections()
+finalClear()
+
+-- Print summary
+print("=== CLEANUP SUMMARY ===")
+for _, s in ipairs(performed) do
+    print(" - " .. s)
+end
+print("Cleanup finished (conservative mode). If bạn vẫn thấy UI còn, vui lòng cho mình biết tên GUI đó để mình loại bỏ cụ thể.")
