@@ -890,45 +890,119 @@ if flyConn then table.insert(allConns, flyConn) end
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
 local lp = Players.LocalPlayer
 
-local ui = { buttons = {} }
-if bringBtn then ui.buttons.Bring = bringBtn end
-if bringAllBtn then ui.buttons.BringAll = bringAllBtn end
-if bringPlayerBtn then ui.buttons.BringPlayer = bringPlayerBtn end
-if goBtn then ui.buttons.Go = goBtn end
-if bringBox then ui.BringBox = bringBox end
+-- ====== UI bootstrap (use existing if found; else create simple one) ======
+local function findUI()
+    if not lp or not lp:FindFirstChild("PlayerGui") then return nil end
+    local pg = lp:FindFirstChild("PlayerGui")
+    local gui = pg:FindFirstChild("BringGoGui")
+    if gui and gui:IsA("ScreenGui") then
+        return gui
+    end
+    return nil
+end
 
-if not (ui.buttons.Bring and ui.buttons.BringAll and ui.buttons.BringPlayer and ui.buttons.Go and ui.BringBox) then
-    if lp and lp:FindFirstChild("PlayerGui") then
-        local pg = lp.PlayerGui
-        local rootGui = pg:FindFirstChildWhichIsA("ScreenGui", true)
-        if rootGui then
-            ui.buttons.Bring = ui.buttons.Bring or rootGui:FindFirstChild("BringBtn", true) or rootGui:FindFirstChild("bringBtn", true)
-            ui.buttons.BringAll = ui.buttons.BringAll or rootGui:FindFirstChild("BringAllBtn", true) or rootGui:FindFirstChild("bringAllBtn", true)
-            ui.buttons.BringPlayer = ui.buttons.BringPlayer or rootGui:FindFirstChild("BringPlayerBtn", true) or rootGui:FindFirstChild("bringPlayerBtn", true)
-            ui.buttons.Go = ui.buttons.Go or rootGui:FindFirstChild("GoBtn", true) or rootGui:FindFirstChild("goBtn", true)
-            ui.BringBox = ui.BringBox or rootGui:FindFirstChild("BringBox", true) or rootGui:FindFirstChild("bringBox", true)
-        end
+local function createMinimalUI()
+    if not lp or not lp:FindFirstChild("PlayerGui") then return end
+    local pg = lp:FindFirstChild("PlayerGui")
+    local screen = Instance.new("ScreenGui")
+    screen.Name = "BringGoGui"
+    screen.ResetOnSpawn = false
+    screen.Parent = pg
+
+    local frame = Instance.new("Frame")
+    frame.Name = "Panel"
+    frame.Size = UDim2.new(0,300,0,220)
+    frame.Position = UDim2.new(0,10,0,50)
+    frame.BackgroundTransparency = 0.25
+    frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    frame.BorderSizePixel = 0
+    frame.Parent = screen
+
+    local box = Instance.new("TextBox")
+    box.Name = "BringBox"
+    box.Size = UDim2.new(1,-20,0,28)
+    box.Position = UDim2.new(0,10,0,8)
+    box.PlaceholderText = "Name"
+    box.Text = ""
+    box.Parent = frame
+
+    local function makeBtn(name, y)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1,-20,0,28)
+        b.Position = UDim2.new(0,10,0,y)
+        b.Text = name
+        b.Parent = frame
+        return b
+    end
+
+    local bringBtn = makeBtn("Bring", 44)
+    bringBtn.Name = "BringBtn"
+    local bringAllBtn = makeBtn("Bring All", 78)
+    bringAllBtn.Name = "BringAllBtn"
+    local bringPlayerBtn = makeBtn("Bring Player", 112)
+    bringPlayerBtn.Name = "BringPlayerBtn"
+    local goBtn = makeBtn("Go", 146)
+    goBtn.Name = "GoBtn"
+
+    return {
+        Gui = screen,
+        BringBox = box,
+        BringBtn = bringBtn,
+        BringAllBtn = bringAllBtn,
+        BringPlayerBtn = bringPlayerBtn,
+        GoBtn = goBtn
+    }
+end
+
+local uiRoot = findUI()
+local bringBtn, bringAllBtn, bringPlayerBtn, goBtn, bringBox
+if uiRoot then
+    bringBox = uiRoot:FindFirstChild("BringBox", true) or uiRoot:FindFirstChild("bringBox", true)
+    bringBtn = uiRoot:FindFirstChild("BringBtn", true) or uiRoot:FindFirstChild("bringBtn", true)
+    bringAllBtn = uiRoot:FindFirstChild("BringAllBtn", true) or uiRoot:FindFirstChild("bringAllBtn", true)
+    bringPlayerBtn = uiRoot:FindFirstChild("BringPlayerBtn", true) or uiRoot:FindFirstChild("bringPlayerBtn", true)
+    goBtn = uiRoot:FindFirstChild("GoBtn", true) or uiRoot:FindFirstChild("goBtn", true)
+end
+
+if not (bringBtn and bringAllBtn and bringPlayerBtn and goBtn and bringBox) then
+    local created = createMinimalUI()
+    if created then
+        bringBox = bringBox or created.BringBox
+        bringBtn = bringBtn or created.BringBtn
+        bringAllBtn = bringAllBtn or created.BringAllBtn
+        bringPlayerBtn = bringPlayerBtn or created.BringPlayerBtn
+        goBtn = goBtn or created.GoBtn
     end
 end
 
 local function safeName(obj)
     if not obj then return "nil" end
     local ok, s = pcall(function() return obj:GetFullName() end)
-    return (ok and s) and s or tostring(obj)
+    if ok and s then return s end
+    return tostring(obj)
 end
 
 local function storePartState(part)
     if not (part and part:IsA("BasePart")) then return nil end
     local state = { anchored = false, lin = Vector3.new(), ang = Vector3.new() }
-    pcall(function() state.anchored = part.Anchored end)
-    local ok, aLin = pcall(function() return part.AssemblyLinearVelocity end)
-    if ok and aLin then
-        state.lin = aLin
-        local ok2, aAng = pcall(function() return part.AssemblyAngularVelocity end)
-        if ok2 and aAng then state.ang = aAng end
+    local ok, lin, ang = pcall(function()
+        return part.Anchored, part.AssemblyLinearVelocity, part.AssemblyAngularVelocity
+    end)
+    if ok then
+        state.anchored = lin or false 
+        local anchor_ok, anchorVal = pcall(function() return part.Anchored end)
+        if anchor_ok then state.anchored = anchorVal end
+
+        local lin_ok, linVal = pcall(function() return part.AssemblyLinearVelocity end)
+        if lin_ok and linVal then state.lin = linVal end
+        local ang_ok, angVal = pcall(function() return part.AssemblyAngularVelocity end)
+        if ang_ok and angVal then state.ang = angVal end
     else
+        pcall(function() state.anchored = part.Anchored end)
         pcall(function() state.lin = part.Velocity end)
     end
     return state
@@ -936,13 +1010,16 @@ end
 
 local function restorePartState(part, state)
     if not (part and part.Parent and state) then return end
-    pcall(function() if state.anchored ~= nil then part.Anchored = state.anchored end end)
     pcall(function()
-        if part.AssemblyLinearVelocity ~= nil then
-            if state.lin then part.AssemblyLinearVelocity = state.lin end
-            if state.ang then part.AssemblyAngularVelocity = state.ang end
-        else
-            if state.lin then part.Velocity = state.lin end
+        if state.anchored ~= nil then part.Anchored = state.anchored end
+    end)
+    pcall(function()
+        local hasAssembly = (part.AssemblyLinearVelocity ~= nil)
+        if hasAssembly and state.lin then
+            part.AssemblyLinearVelocity = state.lin
+            part.AssemblyAngularVelocity = state.ang or Vector3.new()
+        elseif state.lin then
+            part.Velocity = state.lin
         end
     end)
 end
@@ -960,19 +1037,25 @@ local function findAllByName(name)
 end
 
 local function findFirstByName(name)
-    for _, obj in ipairs(findAllByName(name)) do return obj end
+    for _, obj in ipairs(findAllByName(name)) do
+        return obj
+    end
     return nil
 end
 
 local function moveTo(obj, destCFrame)
     if not obj or not obj.Parent then return false, "Object invalid" end
-    if lp.Character and obj:IsDescendantOf(lp.Character) then return false, "Target belongs to you" end
+    if lp.Character and obj:IsDescendantOf(lp.Character) then
+        return false, "Target belongs to you"
+    end
 
     if obj:IsA("BasePart") then
         local state = storePartState(obj)
         pcall(function() obj.Anchored = true end)
         local ok, err = pcall(function() obj.CFrame = destCFrame end)
-        if obj and obj.Parent then restorePartState(obj, state) end
+        if obj and obj.Parent then
+            restorePartState(obj, state)
+        end
         if not ok then return false, tostring(err) end
         return true
     end
@@ -984,22 +1067,32 @@ local function moveTo(obj, destCFrame)
             return true
         end
 
-        local parts, states, center = {}, {}, Vector3.new()
+        local parts = {}
         for _, p in ipairs(obj:GetDescendants()) do
-            if p:IsA("BasePart") then
-                table.insert(parts, p)
-                states[p] = storePartState(p)
-                pcall(function() center = center + p.Position end)
-            end
+            if p:IsA("BasePart") then table.insert(parts, p) end
         end
         if #parts == 0 then return false, "Model has no BaseParts" end
 
+        local states = {}
+        local center = Vector3.new(0,0,0)
+        for _, p in ipairs(parts) do
+            states[p] = storePartState(p)
+            pcall(function() center = center + p.Position end)
+        end
         center = center / #parts
         local delta = destCFrame.Position - center
 
-        for _, p in ipairs(parts) do pcall(function() p.Anchored = true end) end
-        for _, p in ipairs(parts) do pcall(function() p.CFrame = p.CFrame + delta end) end
-        for _, p in ipairs(parts) do restorePartState(p, states[p]) end
+        for _, p in ipairs(parts) do
+            pcall(function() p.Anchored = true end)
+        end
+
+        for _, p in ipairs(parts) do
+            pcall(function() p.CFrame = p.CFrame + delta end)
+        end
+
+        for _, p in ipairs(parts) do
+            restorePartState(p, states[p])
+        end
 
         return true
     end
@@ -1013,15 +1106,21 @@ local function flashBtn(btn, txt, dt)
     if not ok then return end
     pcall(function() btn.Text = txt end)
     delay(dt or 0.9, function()
-        if btn and btn.Parent then pcall(function() btn.Text = old end) end
+        if btn and btn.Parent then
+            pcall(function() btn.Text = old end)
+        end
     end)
 end
 
 local function findPartBest(name)
+    if type(findFirstByName) == "function" then
+        return findFirstByName(name)
+    end
+
     local key = tostring(name or ""):lower():gsub("^%s*(.-)%s*$","%1")
     if key == "" then return nil end
-    local hrpPos = (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") and lp.Character.HumanoidRootPart.Position) or Vector3.new()
     local best, bd = nil, math.huge
+    local hrpPos = (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") and lp.Character.HumanoidRootPart.Position) or Vector3.new()
     for _, v in ipairs(workspace:GetDescendants()) do
         if v:IsA("BasePart") and type(v.Name) == "string" and v.Name:lower() == key then
             local ok, d = pcall(function() return (v.Position - hrpPos).Magnitude end)
@@ -1054,6 +1153,7 @@ local function GoToPartByName(name)
     if not part then return false, "Part not found" end
 
     pcall(function() lastPos = hrp.Position end)
+
     local destCFrame = CFrame.new(part.Position + Vector3.new(0,4,0))
     local ok, err = pcall(function()
         if TELEPORT_TWEEN_TIME and TELEPORT_TWEEN_TIME > 0 then
@@ -1063,7 +1163,9 @@ local function GoToPartByName(name)
             hrp.CFrame = destCFrame
         end
     end)
-    if not ok then pcall(function() hrp.CFrame = destCFrame end) end
+    if not ok then
+        pcall(function() hrp.CFrame = destCFrame end)
+    end
     return true, "Teleported to "..(part.Name or "Part")
 end
 
@@ -1078,29 +1180,29 @@ local function GoBack()
     return true
 end
 
-if ui.buttons.Bring then
-    ui.buttons.Bring.MouseButton1Click:Connect(function()
-        local name = tostring((ui.BringBox and ui.BringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
-        if name == "" then flashBtn(ui.buttons.Bring, "Empty", 0.8); return end
+if bringBtn then
+    bringBtn.MouseButton1Click:Connect(function()
+        local name = tostring((bringBox and bringBox.Text) or ""):gsub("^%s*(.-)%s*$", "%1")
+        if name == "" then flashBtn(bringBtn, "Empty", 0.8); return end
         local target = findFirstByName(name)
-        if not target then flashBtn(ui.buttons.Bring, "Not Found", 1.2); return end
+        if not target then flashBtn(bringBtn, "Not Found", 1.2); return end
         local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then flashBtn(ui.buttons.Bring, "No HRP", 1.2); return end
+        if not hrp then flashBtn(bringBtn, "No HRP", 1.2); return end
         local dest = hrp.CFrame + Vector3.new(0,5,0)
         local ok, res = pcall(function() return moveTo(target, dest) end)
-        if not ok then flashBtn(ui.buttons.Bring, "Err", 1.2); warn("BringPart pcall error:", res); return end
-        if res == true then flashBtn(ui.buttons.Bring, "Done", 0.9) else flashBtn(ui.buttons.Bring, "Fail", 1.2); warn("BringPart failed:", res) end
+        if not ok then flashBtn(bringBtn, "Err", 1.2); warn("BringPart pcall error:", res); return end
+        if res == true then flashBtn(bringBtn, "Done", 0.9) else flashBtn(bringBtn, "Fail", 1.2); warn("BringPart failed:", res) end
     end)
 end
 
-if ui.buttons.BringAll then
-    ui.buttons.BringAll.MouseButton1Click:Connect(function()
-        local name = tostring((ui.BringBox and ui.BringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
-        if name == "" then flashBtn(ui.buttons.BringAll, "Empty", 0.8); return end
+if bringAllBtn then
+    bringAllBtn.MouseButton1Click:Connect(function()
+        local name = tostring((bringBox and bringBox.Text) or ""):gsub("^%s*(.-)%s*$", "%1")
+        if name == "" then flashBtn(bringAllBtn, "Empty", 0.8); return end
         local list = findAllByName(name)
-        if #list == 0 then flashBtn(ui.buttons.BringAll, "No Match", 1.2); return end
+        if #list == 0 then flashBtn(bringAllBtn, "No Match", 1.2); return end
         local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then flashBtn(ui.buttons.BringAll, "No HRP", 1.2); return end
+        if not hrp then flashBtn(bringAllBtn, "No HRP", 1.2); return end
         local basePos = hrp.Position + Vector3.new(0,5,0)
         local offsetStep = 4
         for i, obj in ipairs(list) do
@@ -1109,38 +1211,37 @@ if ui.buttons.BringAll then
             if not ok then warn("BringAll pcall error for", safeName(obj), res) end
             if ok and res ~= true then warn("BringAll moveTo failed for", safeName(obj), res) end
         end
-        flashBtn(ui.buttons.BringAll, "Done", 1)
+        flashBtn(bringAllBtn, "Done", 1)
     end)
 end
 
-if ui.buttons.BringPlayer then
-    ui.buttons.BringPlayer.MouseButton1Click:Connect(function()
-        local name = tostring((ui.BringBox and ui.BringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
+if bringPlayerBtn then
+    bringPlayerBtn.MouseButton1Click:Connect(function()
+        local name = tostring((bringBox and bringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
         if type(doBringPlayerByName) == "function" then
             doBringPlayerByName(name)
-            if ui.BringBox then ui.BringBox.Text = "" end
+            if bringBox then bringBox.Text = "" end
         else
-            flashBtn(ui.buttons.BringPlayer, "N/A", 1)
+            flashBtn(bringPlayerBtn, "N/A", 1)
         end
     end)
 end
 
-if ui.buttons.Go then
-    ui.buttons.Go.MouseButton1Click:Connect(function()
-        local name = tostring((ui.BringBox and ui.BringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
-        if name == "" then flashBtn(ui.buttons.Go, "Empty", 0.8); return end
+if goBtn then
+    goBtn.MouseButton1Click:Connect(function()
+        local name = tostring((bringBox and bringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
+        if name == "" then flashBtn(goBtn, "Empty", 0.8); return end
         local ok, msg = pcall(function() return GoToPartByName(name) end)
-        if not ok then flashBtn(ui.buttons.Go, "Err", 1.2); warn("[GoToPart] error:", msg); return end
-        flashBtn(ui.buttons.Go, "Go", 0.6)
+        if not ok then flashBtn(goBtn, "Err", 1.2); warn("[GoToPart] error:", msg); return end
+        flashBtn(goBtn, "Go", 0.6)
     end)
 end
-
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.Q then
-        local name = tostring((ui.BringBox and ui.BringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
+        local name = tostring((bringBox and bringBox.Text) or ""):gsub("^%s*(.-)%s*$","%1")
         if name ~= "" then
-            if type(doBringPlayerByName) == "function" then doBringPlayerByName(name); if ui.BringBox then ui.BringBox.Text = "" end end
+            if type(doBringPlayerByName) == "function" then doBringPlayerByName(name); if bringBox then bringBox.Text = "" end end
             return
         end
         local cam = workspace.CurrentCamera
@@ -1150,9 +1251,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         params.FilterType = Enum.RaycastFilterType.Blacklist
         params.IgnoreWater = true
         local rayResult = workspace:Raycast(cam.CFrame.Position, cam.CFrame.LookVector * 200, params)
-        if not rayResult or not rayResult.Instance then if ui.buttons.BringPlayer then flashBtn(ui.buttons.BringPlayer, "No Target", 1) end; return end
+        if not rayResult or not rayResult.Instance then flashBtn(bringPlayerBtn, "No Target", 1); return end
         local model = rayResult.Instance:FindFirstAncestorOfClass("Model")
-        if not model then if ui.buttons.BringPlayer then flashBtn(ui.buttons.BringPlayer, "No Target", 1) end; return end
+        if not model then flashBtn(bringPlayerBtn, "No Target", 1); return end
         local found = false
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr.Character == model and plr ~= lp then
@@ -1161,7 +1262,18 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 break
             end
         end
-        if not found and ui.buttons.BringPlayer then flashBtn(ui.buttons.BringPlayer, "No Target", 1) end
+        if not found then flashBtn(bringPlayerBtn, "No Target", 1) end
+    end
+end)
+
+pcall(function()
+    if safeTabRow and type(safeTabRow) == "function" then
+        local antiRow = safeTabRow(2, "AntiBring")
+        for _, ch in ipairs(antiRow:GetChildren()) do
+            if not ch:IsA("UIListLayout") and not ch:IsA("UIPadding") then
+                pcall(function() ch:Destroy() end)
+            end
+        end
     end
 end)
 
