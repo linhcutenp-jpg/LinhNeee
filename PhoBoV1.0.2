@@ -887,71 +887,116 @@ flyConn = RunService.RenderStepped:Connect(function()
 end)
 if flyConn then table.insert(allConns, flyConn) end
 
-local bringRow = TabRow(2, "Bring Part")
-local bringBox = C("TextBox", {
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local workspace = workspace
+
+local lp = Players.LocalPlayer
+
+local function safeC(class, props, parent)
+    if type(C) == "function" then
+        local ok, res = pcall(function() return C(class, props, parent) end)
+        if ok and res then return res end
+    end
+    local inst = Instance.new(class)
+    if props then
+        for k, v in pairs(props) do
+            if k ~= "Parent" then
+                pcall(function() inst[k] = v end)
+            end
+        end
+    end
+    if parent then inst.Parent = parent end
+    return inst
+end
+
+local function safeTabRow(tabIndex, label)
+    if type(TabRow) == "function" then
+        return TabRow(tabIndex, label)
+    end
+    local pg = lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui")
+    local screen = pg:FindFirstChild("PhoBo_Misc_Fallback") or Instance.new("ScreenGui", pg)
+    screen.Name = "PhoBo_Misc_Fallback"
+    screen.ResetOnSpawn = false
+    local f = Instance.new("Frame", screen)
+    f.Name = label.."Row"
+    f.Size = UDim2.new(0,420,0,34)
+    f.Position = UDim2.new(0,10,0,10 + (#screen:GetChildren()*38))
+    f.BackgroundTransparency = 0.45
+    return f
+end
+
+local function _safeC(class, props, parent)
+    return safeC(class, props, parent)
+end
+local function _safeTabRow(tabIndex, label)
+    return safeTabRow(tabIndex, label)
+end
+
+local bringRow = _safeTabRow(2, "Bring Part")
+local bringBox = _safeC("TextBox", {
     Parent = bringRow,
-    Size = UDim2.new(0,180,1,0),
-    Position = UDim2.new(0,130,0,0),
+    Size = UDim2.new(0, 150, 1, 0),
+    Position = UDim2.new(0, 130, 0, 0),
     BackgroundColor3 = Color3.fromRGB(70,70,80),
     BorderSizePixel = 0,
     Text = "",
     PlaceholderText = "PartName",
     TextColor3 = Color3.fromRGB(235,235,240),
     Font = Enum.Font.Gotham,
-    TextSize = 14,
+    TextSize = 12,
     ClearTextOnFocus = true
 }, bringRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, bringBox)
+_safeC("UICorner", { CornerRadius = UDim.new(0,8) }, bringBox)
 
-local btnFrame = C("Frame", {
+local goBtn = _safeC("TextButton", {
     Parent = bringRow,
-    Size = UDim2.new(0,80,1,0),
-    Position = UDim2.new(0,320,0,0),
+    Size = UDim2.new(0,60,1,0),
+    Position = UDim2.new(-0.15,310,0.68,20),
+    BackgroundColor3 = Color3.fromRGB(90,90,100),
+    BorderSizePixel = 0,
+    Text = "Go",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextYAlignment = Enum.TextYAlignment.Center
+}, bringRow)
+_safeC("UICorner", { CornerRadius = UDim.new(0,8) }, goBtn)
+
+local btnFrame = _safeC("Frame", {
+    Parent = bringRow,
+    Size = UDim2.new(0,90,1,0),
+    Position = UDim2.new(1, -90, 0, 0),
     BackgroundTransparency = 1
 }, bringRow)
 
-local layout = C("UIListLayout", {
+_safeC("UIListLayout", {
     Parent = btnFrame,
     FillDirection = Enum.FillDirection.Vertical,
     SortOrder = Enum.SortOrder.LayoutOrder,
-    Padding = UDim.new(0,4)
+    Padding = UDim.new(0,6)
 }, btnFrame)
 
-local bringBtn = C("TextButton", {
-    Parent = btnFrame,
-    Size = UDim2.new(1,0,0.5,-2),
-    BackgroundColor3 = Color3.fromRGB(90,90,100),
-    BorderSizePixel = 0,
-    Text = "Bring",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamBold,
-    TextSize = 14
-}, btnFrame)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, bringBtn)
+local function _makeRightBtn(text, textSize)
+    local b = _safeC("TextButton", {
+        Parent = btnFrame,
+        Size = UDim2.new(1,0,1/3,-2),
+        BackgroundColor3 = Color3.fromRGB(90,90,100),
+        BorderSizePixel = 0,
+        Text = text,
+        TextColor3 = Color3.fromRGB(235,235,240),
+        Font = Enum.Font.GothamBold,
+        TextSize = textSize or 13
+    }, btnFrame)
+    _safeC("UICorner", { CornerRadius = UDim.new(0,8) }, b)
+    return b
+end
 
-local bringAllBtn = C("TextButton", {
-    Parent = btnFrame,
-    Size = UDim2.new(1,0,0.5,-2),
-    BackgroundColor3 = Color3.fromRGB(90,90,100),
-    BorderSizePixel = 0,
-    Text = "Bring All",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamBold,
-    TextSize = 13
-}, btnFrame)
-local bringPlayerBtn = C("TextButton", {
-    Parent = btnFrame,
-    Size = UDim2.new(1,0,0.5,-2),
-    BackgroundColor3 = Color3.fromRGB(90,90,100),
-    BorderSizePixel = 0,
-    Text = "Bring Player",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamBold,
-    TextSize = 13
-}, btnFrame)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, bringPlayerBtn)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, bringAllBtn)
-
+local bringBtn = _makeRightBtn("Bring", 14)
+local bringAllBtn = _makeRightBtn("Bring All", 13)
+local bringPlayerBtn = _makeRightBtn("Bring Player", 13)
 
 local function findAllByName(name)
     local lower = (name or ""):lower()
@@ -1021,6 +1066,7 @@ local function moveTo(obj, destCFrame)
 end
 
 local function flashBtn(btn, txt, dt)
+    if not btn then return end
     local old = btn.Text
     btn.Text = txt
     delay(dt or 0.9, function() if btn and btn.Parent then btn.Text = old end end)
@@ -1090,119 +1136,187 @@ bringAllBtn.MouseButton1Click:Connect(function()
     flashBtn(bringAllBtn, "Done", 1)
 end)
 
-local bringPlayerDebounce = false
-local function doBringPlayerByName(name)
-    if bringPlayerDebounce then return end
-    bringPlayerDebounce = true
-    task.defer(function()
-        task.wait(0.6)
-        bringPlayerDebounce = false
-    end)
-
-    name = tostring(name or ""):gsub("^%s*(.-)%s*$", "%1")
-    if name == "" then
-        flashBtn(bringPlayerBtn, "Empty", 0.8)
-        return
-    end
-
-    local function findPlayerByPartial(namePart)
-        namePart = string.lower(namePart or "")
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if string.find(string.lower(plr.Name), namePart, 1, true) and plr ~= lp then
-                return plr
-            end
-        end
-        return nil
-    end
-
-    local target = findPlayerByPartial(name)
-    if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
-        flashBtn(bringPlayerBtn, "Not Found", 1.2)
-        return
-    end
-
-    local myHRP = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-    if not myHRP then
-        flashBtn(bringPlayerBtn, "No HRP", 1.2)
-        return
-    end
-
-    local forwardOffset = 3
-    local yOffset = 1.2
-    local destPos = myHRP.Position + (myHRP.CFrame.LookVector * forwardOffset) + Vector3.new(0, yOffset, 0)
-    local dest = CFrame.new(destPos, destPos + myHRP.CFrame.LookVector)
-
-    local ok, res = pcall(function()
-        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            target.Character.HumanoidRootPart.CFrame = dest
-        elseif target.Character and target.Character.PrimaryPart then
-            target.Character:SetPrimaryPartCFrame(dest)
-        else
-            error("No part to move")
-        end
-    end)
-
-    if ok then
-        flashBtn(bringPlayerBtn, "Done", 1)
-
-        spawn(function()
-            pcall(function()
-                local head = target.Character and target.Character:FindFirstChild("Head")
-                if head and espObjects[target] and espObjects[target].tag then
-                    local tag = espObjects[target].tag
-                    tag.Adornee = nil
-                    task.wait(0.03)
-                    tag.Adornee = head
-                end
-            end)
-        end)
-    else
-        flashBtn(bringPlayerBtn, "Fail", 1.2)
-        warn("[BringPlayer] Error moving target:", res)
-    end
-end
-
 bringPlayerBtn.MouseButton1Click:Connect(function()
-    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
-    doBringPlayerByName(name)
-    bringBox.Text = ""
+    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$","%1")
+    if type(doBringPlayerByName) == "function" then
+        doBringPlayerByName(name)
+        bringBox.Text = ""
+    else
+        flashBtn(bringPlayerBtn, "N/A", 1)
+    end
 end)
 
-local inputQConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.Q then
         local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
         if name ~= "" then
-            doBringPlayerByName(name)
-            bringBox.Text = ""
-        else
-            local cam = workspace.CurrentCamera
-            if cam then
-                local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
-                local part, pos = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
-                if part then
-                    local model = part:FindFirstAncestorOfClass("Model")
-                    if model then
-                        local found = false
-                        for _, plr in ipairs(Players:GetPlayers()) do
-                            if plr.Character == model and plr ~= lp then
-                                doBringPlayerByName(plr.Name)
-                                found = true
-                                break
-                            end
-                        end
-                        if not found then
-                            flashBtn(bringPlayerBtn, "No Target", 1)
-                        end
-                    else
-                        flashBtn(bringPlayerBtn, "No Target", 1)
-                    end
-                else
-                    flashBtn(bringPlayerBtn, "No Target", 1)
+            if type(doBringPlayerByName) == "function" then
+                doBringPlayerByName(name)
+                bringBox.Text = ""
+            end
+            return
+        end
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
+        local part, _ = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
+        if not part then
+            flashBtn(bringPlayerBtn, "No Target", 1)
+            return
+        end
+        local model = part:FindFirstAncestorOfClass("Model")
+        if not model then
+            flashBtn(bringPlayerBtn, "No Target", 1)
+            return
+        end
+        local found = false
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character == model and plr ~= lp then
+                if type(doBringPlayerByName) == "function" then
+                    doBringPlayerByName(plr.Name)
                 end
+                found = true
+                break
             end
         end
+        if not found then flashBtn(bringPlayerBtn, "No Target", 1) end
     end
+end)
+
+local TELEPORT_TWEEN_TIME = 0.22
+local goDebounce = false
+
+local function findPartBest(name)
+    if type(findFirstByName) == "function" then
+        return findFirstByName(name)
+    end
+    local key = tostring(name or ""):lower()
+    if key == "" then return nil end
+    local best, bd = nil, math.huge
+    local hrpPos = (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") and lp.Character.HumanoidRootPart.Position) or Vector3.new()
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") and v.Name:lower():find(key,1,true) then
+            local d = (v.Position - hrpPos).Magnitude
+            if d < bd then bd = d; best = v end
+        end
+    end
+    return best
+end
+
+local function GoToPartByName(name)
+    if goDebounce then return false, "Busy" end
+    goDebounce = true
+    task.defer(function() task.wait(0.6); goDebounce = false end)
+
+    if not (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return false, "No HRP" end
+    local part = findPartBest(name)
+    if not part then return false, "Part not found" end
+
+    local dest = part.Position + Vector3.new(0,4,0)
+    local hrp = lp.Character.HumanoidRootPart
+    local ok, err = pcall(function()
+        if TELEPORT_TWEEN_TIME > 0 then
+            TweenService:Create(hrp, TweenInfo.new(TELEPORT_TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = CFrame.new(dest)}):Play()
+        else
+            hrp.CFrame = CFrame.new(dest)
+        end
+    end)
+    if not ok then
+        pcall(function() hrp.CFrame = CFrame.new(dest) end)
+    end
+    if lastPos ~= nil then
+        lastPos = hrp.Position
+    end
+    return true, "Teleported to "..(part.Name or "Part")
+end
+
+goBtn.MouseButton1Click:Connect(function()
+    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$","%1")
+    if name == "" then
+        flashBtn(goBtn, "Empty", 0.8)
+        return
+    end
+    local ok, msg = pcall(function() return GoToPartByName(name) end)
+    if not ok then
+        flashBtn(goBtn, "Err", 1.2)
+        warn("[GoToPart] error:", msg)
+        return
+    end
+    flashBtn(goBtn, "Go", 0.6)
+end)
+
+local antiRow = safeTabRow(2, "AntiBring")
+for _, ch in ipairs(antiRow:GetChildren()) do
+    if not ch:IsA("UIListLayout") and not ch:IsA("UIPadding") then
+        pcall(function() ch:Destroy() end)
+    end
+end
+
+local antiBtnFrame = safeC("Frame", {
+    Parent = antiRow,
+    Size = UDim2.new(0,90,1,0),
+    Position = UDim2.new(0,310,0,0),
+    BackgroundTransparency = 1
+}, antiRow)
+safeC("UIListLayout", {
+    Parent = antiBtnFrame,
+    FillDirection = Enum.FillDirection.Vertical,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0,4)
+}, antiBtnFrame)
+
+local antiBtn = safeC("TextButton", {
+    Parent = antiBtnFrame,
+    Size = UDim2.new(1,0,1,0),
+    BackgroundColor3 = Color3.fromRGB(90,90,100),
+    BorderSizePixel = 0,
+    Text = "AntiBring: OFF",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14
+}, antiBtnFrame)
+safeC("UICorner", { CornerRadius = UDim.new(0,8) }, antiBtn)
+
+local AntiBringEnabled = false
+local antiConn = nil
+local lastPos = nil
+local BRING_THRESHOLD = 60
+
+local function startAntiBringLoop()
+    if antiConn then antiConn:Disconnect(); antiConn = nil end
+    if not (lp and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return end
+    local hrp = lp.Character.HumanoidRootPart
+    lastPos = hrp.Position
+    antiConn = RunService.Heartbeat:Connect(function()
+        if not AntiBringEnabled then lastPos = hrp.Position; return end
+        if not hrp or not hrp.Parent then return end
+        local cur = hrp.Position
+        local d = (cur - lastPos).Magnitude
+        if d > BRING_THRESHOLD then
+            pcall(function() hrp.CFrame = CFrame.new(lastPos) end)
+            warn("[AntiBring] reverted unexpected teleport (d="..tostring(math.floor(d))..")")
+            lastPos = hrp.Position
+        else
+            lastPos = cur
+        end
+    end)
+end
+
+antiBtn.MouseButton1Click:Connect(function()
+    AntiBringEnabled = not AntiBringEnabled
+    antiBtn.Text = AntiBringEnabled and "AntiBring: ON" or "AntiBring: OFF"
+    antiBtn.BackgroundColor3 = AntiBringEnabled and Color3.fromRGB(80,200,120) or Color3.fromRGB(90,90,100)
+    if AntiBringEnabled then
+        startAntiBringLoop()
+    else
+        if antiConn then antiConn:Disconnect(); antiConn = nil end
+    end
+end)
+
+lp.CharacterAdded:Connect(function()
+    task.wait(0.12)
+    if AntiBringEnabled then startAntiBringLoop() end
 end)
 
 table.insert(allConns, inputQConn)
@@ -1268,7 +1382,6 @@ local function cleanupAll()
     end
 end
 
---== Character respawn handlers ==--
 local function onCharacterAdded(char)
     local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
     if hum then
