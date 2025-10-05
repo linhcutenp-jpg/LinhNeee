@@ -49,7 +49,13 @@ local Themes = {
 }
 local Fonts = { Enum.Font.Gotham, Enum.Font.GothamBold, Enum.Font.Ubuntu, Enum.Font.Roboto, Enum.Font.FredokaOne }
 
-local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false }, pg)
+local screen = C("ScreenGui", {
+    Name = "MenuUI",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Global,
+    DisplayOrder = 999999
+}, game:GetService("CoreGui"))
+
 screen.Enabled = true
 local win = C("Frame", {
     Name = "Window",
@@ -617,17 +623,30 @@ end)
 if noclipConn then table.insert(allConns, noclipConn) end
 
 local espRow = TabRow(2, "ESP")
-local espBtn = C("TextButton", { Parent = espRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, espRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, espBtn)
+
+local espBtn = C("TextButton", {
+    Parent = espRow,
+    Size = UDim2.new(0, 120, 1, 0),
+    Position = UDim2.new(0, 130, 0, 0),
+    BackgroundColor3 = Color3.fromRGB(70, 70, 80),
+    BorderSizePixel = 0,
+    Text = "OFF",
+    TextColor3 = Color3.fromRGB(235, 235, 240),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14
+}, espRow)
+C("UICorner", { CornerRadius = UDim.new(0, 8) }, espBtn)
+
 local espObjects = {}
+local espEnabled = false
+local espColor = Color3.fromRGB(255, 85, 0)
 
 local function safeDestroy(o)
-    if o and typeof(o) == "Instance" and o.Parent then
+    if o and typeof(o) == "Instance" then
         pcall(function() o:Destroy() end)
     end
 end
 
-local espColor = Color3.fromRGB(255,85,0)
 local function getPlayerESPColor(plr)
     if plr.Team and plr.Team.TeamColor then
         return plr.Team.TeamColor.Color
@@ -635,31 +654,34 @@ local function getPlayerESPColor(plr)
     return espColor
 end
 
-local function createESPForCharacter(plr, char)
+local function createESP(plr)
     if plr == lp then return end
+    local char = plr.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Head") then return end
     if espObjects[plr] then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
+
+    local hrp = char.HumanoidRootPart
     local color = getPlayerESPColor(plr)
+
     local box = Instance.new("BoxHandleAdornment")
-    box.Size = Vector3.new(4,6,2)
+    box.Size = Vector3.new(4, 6, 2)
     box.Color3 = color
     box.Transparency = 0.6
     box.ZIndex = 10
     box.AlwaysOnTop = true
     box.Adornee = hrp
-    box.Parent = char
+    box.Parent = hrp
 
     local tag = Instance.new("BillboardGui")
-    tag.Adornee = char:FindFirstChild("Head")
-    tag.Size = UDim2.new(0,100,0,16)
+    tag.Adornee = char.Head
+    tag.Size = UDim2.new(0, 100, 0, 16)
     tag.StudsOffset = Vector3.new(0, 2, 0)
     tag.AlwaysOnTop = true
     tag.Parent = char
 
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
-    label.Size = UDim2.new(1,0,1,0)
+    label.Size = UDim2.new(1, 0, 1, 0)
     label.Text = plr.Name
     label.TextColor3 = color
     label.Font = Enum.Font.GothamBold
@@ -669,7 +691,7 @@ local function createESPForCharacter(plr, char)
     espObjects[plr] = { box = box, tag = tag }
 end
 
-local function removeESPForPlayer(plr)
+local function removeESP(plr)
     if espObjects[plr] then
         safeDestroy(espObjects[plr].box)
         safeDestroy(espObjects[plr].tag)
@@ -677,30 +699,25 @@ local function removeESPForPlayer(plr)
     end
 end
 
-local function updateESPAll()
+local function updateAllESP()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= lp then
-            if esp then
-                local char = plr.Character
-                if char then
-                    createESPForCharacter(plr, char)
-                end
+            if espEnabled then
+                createESP(plr)
             else
-                removeESPForPlayer(plr)
+                removeESP(plr)
             end
         end
     end
 end
-local function onPlayerCharacterAdded(plr)
-    return function(char)
-        removeESPForPlayer(plr)
 
-        if esp then
-            spawn(function()
-                local hrp = char:WaitForChild("HumanoidRootPart", 5)
-                local head = char:FindFirstChild("Head") or char:WaitForChild("Head", 5)
-                if hrp and head then
-                    createESPForCharacter(plr, char)
+local function onCharacterAdded(plr)
+    return function(char)
+        removeESP(plr)
+        if espEnabled then
+            task.delay(0.5, function()
+                if char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Head") then
+                    createESP(plr)
                 end
             end)
         end
@@ -708,34 +725,28 @@ local function onPlayerCharacterAdded(plr)
 end
 
 for _, plr in ipairs(Players:GetPlayers()) do
-    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
-    table.insert(allConns, conn)
-    if plr.Character and esp then
-        spawn(function()
-            local hrp = plr.Character:WaitForChild("HumanoidRootPart", 5)
-            if hrp then createESPForCharacter(plr, plr.Character) end
-        end)
+    table.insert(allConns, plr.CharacterAdded:Connect(onCharacterAdded(plr)))
+    if plr.Character then
+        createESP(plr)
     end
 end
 
-local playerAddedConn = Players.PlayerAdded:Connect(function(plr)
-    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
-    table.insert(allConns, conn)
-end)
-table.insert(allConns, playerAddedConn)
+table.insert(allConns, Players.PlayerAdded:Connect(function(plr)
+    table.insert(allConns, plr.CharacterAdded:Connect(onCharacterAdded(plr)))
+end))
 
-local playerRemovingConn = Players.PlayerRemoving:Connect(function(plr)
-    removeESPForPlayer(plr)
-end)
-table.insert(allConns, playerRemovingConn)
+table.insert(allConns, Players.PlayerRemoving:Connect(function(plr)
+    removeESP(plr)
+end))
 
 espBtn.MouseButton1Click:Connect(function()
-    esp = not esp
-    espBtn.Text = esp and "ON" or "OFF"
-    TweenService:Create(espBtn, TweenInfo.new(0.2), { BackgroundColor3 = esp and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80) }):Play()
-    updateESPAll()
+    espEnabled = not espEnabled
+    espBtn.Text = espEnabled and "ON" or "OFF"
+    TweenService:Create(espBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = espEnabled and Color3.fromRGB(130, 130, 220) or Color3.fromRGB(70, 70, 80)
+    }):Play()
+    updateAllESP()
 end)
-
 
 local xrayRow = TabRow(2, "Xray")
 local xrayBtn = C("TextButton", { Parent = xrayRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, xrayRow)
@@ -1313,6 +1324,85 @@ antiBtn.MouseButton1Click:Connect(function()
         if antiConn then antiConn:Disconnect(); antiConn = nil end
     end
 end)
+
+local locateItem = ""
+local locateEnabled = false
+local locateConnections = {}
+local locateESPObjects = {}
+
+local locateRow = C("Frame", { Parent = tabContents[2], Size = UDim2.new(1,0,0,30), BackgroundTransparency = 1 })
+local locateBox = C("TextBox", {
+    Parent = locateRow,
+    Size = UDim2.new(0,200,1,0),
+    BackgroundColor3 = Color3.fromRGB(60,60,70),
+    BorderSizePixel = 0,
+    PlaceholderText = "ItemName (exact or partial)",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.Gotham,
+    TextSize = 14
+})
+C("UICorner", { CornerRadius = UDim.new(0,8) }, locateBox)
+
+local locateBtn = C("TextButton", {
+    Parent = locateRow,
+    Size = UDim2.new(0,80,1,0),
+    Position = UDim2.new(0,210,0,0),
+    BackgroundColor3 = Color3.fromRGB(70,70,80),
+    BorderSizePixel = 0,
+    Text = "OFF",
+    TextColor3 = Color3.fromRGB(235,235,240),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14
+})
+C("UICorner", { CornerRadius = UDim.new(0,8) }, locateBtn)
+
+local function createItemESP(obj)
+    local adornee = obj:FindFirstChildWhichIsA("BasePart") or obj:FindFirstChild("Handle")
+    if not adornee then return end
+    local esp = Instance.new("BoxHandleAdornment")
+    esp.Size = adornee.Size + Vector3.new(0.5,0.5,0.5)
+    esp.Color3 = Color3.fromRGB(255,200,0)
+    esp.Transparency = 0.3
+    esp.AlwaysOnTop = true
+    esp.ZIndex = 10
+    esp.Adornee = adornee
+    esp.Parent = adornee
+    locateESPObjects[obj] = esp
+end
+
+local function clearItemESPs()
+    for obj, esp in pairs(locateESPObjects) do
+        pcall(function() esp:Destroy() end)
+    end
+    locateESPObjects = {}
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        if locateEnabled and locateItem ~= "" then
+            clearItemESPs()
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
+                    if obj.Name:lower():find(locateItem:lower()) then
+                        createItemESP(obj)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+locateBtn.MouseButton1Click:Connect(function()
+    locateEnabled = not locateEnabled
+    locateBtn.Text = locateEnabled and "ON" or "OFF"
+    TweenService:Create(locateBtn, TweenInfo.new(0.2), { BackgroundColor3 = locateEnabled and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80) }):Play()
+    if not locateEnabled then clearItemESPs() end
+end)
+
+locateBox.FocusLost:Connect(function()
+    locateItem = locateBox.Text
+end)
+
 
 lp.CharacterAdded:Connect(function()
     task.wait(0.12)
