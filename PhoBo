@@ -14,7 +14,7 @@ local pg = lp:WaitForChild("PlayerGui")
 
 local Config = {
     PROTECT = true,
-    ALLOWED_USER_IDS = { 7651295755, 7361198469, },
+    ALLOWED_USER_IDS = { 7651295755, 7361198469 },
     SECURITY_HEARTBEAT = 30,
     MAX_SAFE_JUMP_POWER = 180,
     MAX_SAFE_WALK_SPEED = 500,
@@ -203,6 +203,7 @@ title = C("TextLabel", { Size = UDim2.new(1,-140,1,0), Position = UDim2.fromOffs
 local toggleBtn = C("TextButton", { Name = "ToggleBtn", Size = UDim2.fromOffset(65,26), Position = UDim2.new(1,-110,0.5,-13), BackgroundColor3 = Config.THEMES.Dark.Accent, BorderSizePixel = 0, Text = "Hide", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 13 }, header)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, toggleBtn)
 
+-- Tabs
 local tabs = { "Main", "Combat/ESP", "System" }
 local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,32), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
 local tabButtons, tabContents = {}, {}
@@ -852,7 +853,6 @@ local function removeESP(plr, clean)
     end
 end
 
--- ESP Update
 local updateAccum = 0
 
 local function requestEspUpdate(dt)
@@ -1700,7 +1700,7 @@ end
 _G.UnloadLinhScript = cleanupAll
 
 print("=" .. string.rep("=", 60))
-print("Linh Script Premium v10.7.3")
+print("Linh Script Premium v10.7.3 - Final Release Loaded!")
 print("Features: ESP | Jump | Loot ESP | Xray | Fly | Bring Part | Physics Sandbox")
 print("Hotkey: Right Shift (Menu) | B (Fly)")
 print("To unload: _G.UnloadLinhScript()")
