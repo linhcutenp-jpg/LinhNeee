@@ -1197,6 +1197,7 @@ local function toggleFlyState()
 end
 
 flyBtn.MouseButton1Click:Connect(toggleFlyState)
+
 flyMethodBtn.MouseButton1Click:Connect(function()
     state.flyMethod = (state.flyMethod == "BodyVelocity") and "CFrame Engine" or "BodyVelocity"
     flyMethodBtn.Text = "Engine: " .. state.flyMethod
@@ -1205,7 +1206,9 @@ end)
 
 CAS:BindAction("FlyActionKey", function(_, actionState)
     if UIS:GetFocusedTextBox() then return end
-    if actionState == Enum.UserInputState.Begin then flyBtn:Click() end
+    if actionState == Enum.UserInputState.Begin then
+        toggleFlyState()
+    end
 end, false, Enum.KeyCode.B)
 
 -- ====================================================================
@@ -1446,7 +1449,9 @@ bringAllBtn.MouseButton1Click:Connect(function()
                 networkBring(p, targetCF)
                 count = count + 1
             end
-            if i % 150 == 0 then task.wait()
+            if i % 150 == 0 then
+                task.wait()
+            end
         end
         partInfoLabel.Text = string.format("🌀 Brought %d items!", count)
         updateObjectScannerUI()
@@ -1467,14 +1472,20 @@ freezeBtn = C("TextButton", { Parent = sandActionsRow, Size = UDim2.new(0,180,1,
 C("UICorner", { CornerRadius = UDim.new(0,8) }, freezeBtn)
 
 lockToMeBtn.MouseButton1Click:Connect(function()
-    if not selectedPart then partInfoLabel.Text = "⚠️ Select an object first!"; return end
+    if not selectedPart then
+        partInfoLabel.Text = "⚠️ Select an object first!"
+        return
+    end
     state.lockToMeEnabled = not state.lockToMeEnabled
     lockToMeBtn.Text = state.lockToMeEnabled and "🔒 Lock to Me: ON" or "🔒 Lock to Me: OFF"
     TweenService:Create(lockToMeBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.lockToMeEnabled and Color3.fromRGB(210,120,40) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
 freezeBtn.MouseButton1Click:Connect(function()
-    if not selectedPart then partInfoLabel.Text = "⚠️ Select an object first!"; return end
+    if not selectedPart then
+        partInfoLabel.Text = "⚠️ Select an object first!"
+        return
+    end
     state.freezeEnabled = not state.freezeEnabled
     freezeBtn.Text = state.freezeEnabled and "🥶 Freeze: ON" or "🥶 Freeze: OFF"
     TweenService:Create(freezeBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.freezeEnabled and Color3.fromRGB(90,140,210) or Color3.fromRGB(70,70,80) }):Play()
