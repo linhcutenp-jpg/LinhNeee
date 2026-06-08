@@ -23,18 +23,18 @@ local Config = {
     MAX_SAFE_WALK_SPEED = 500,
     ESP_DISTANCE = 500,
     ESP_FILL_TRANSPARENCY = 0.5,
-    ESP_UPDATE_INTERVAL = 0.06,
+    ESP_UPDATE_INTERVAL = 0.12,
     ESP_DIST_MIN = 50,
     ESP_DIST_MAX = 3500,
-    LOOT_SCAN_RADIUS = 400,
-    LOOT_MAX_RENDER = 35,
+    LOOT_SCAN_RADIUS = 300,
+    LOOT_MAX_RENDER = 20,
     LOOT_TAG = "LootableObject_v10_7",
     LOOT_KEYWORDS = { "chest", "loot", "dropped", "item", "coin", "gem", "crate", "supply" },
     XRAY_TAG = "XrayManaged_v10_7",
     XRAY_INTENSITY = 0.65,
-    XRAY_BATCH_SIZE = 250,
-    PHYSICS_THROTTLE_FPS = 1 / 30,
-    FORCE_UPDATE_INTERVAL = 2,
+    XRAY_BATCH_SIZE = 80,
+    PHYSICS_THROTTLE_FPS = 1 / 15,
+    FORCE_UPDATE_INTERVAL = 3,
     JUMP_THROTTLE = 0.15,
     FLY_DEFAULT_SPEED = 60,
     FLY_SPEED_MIN = 20,
@@ -59,7 +59,7 @@ local LOOT_RADIUS_SQ = Config.LOOT_SCAN_RADIUS * Config.LOOT_SCAN_RADIUS
 if Config.PROTECT then
     local allowed = false
     for _, id in ipairs(Config.ALLOWED_USER_IDS) do
-        if id == lp.UserId then allowed = true
+        if id == lp.UserId then allowed = true end
     end
     if not allowed then return end
 end
@@ -125,6 +125,7 @@ local lastJumpReset = 0
 local ConnectionRegistry = {}
 local espData = {}
 local lootRegistry = {}
+local lootInitialScanDone = false
 local originalCollisions = {}
 local characterPartsCache = {}
 local xrayOriginalParts = {}
@@ -1067,7 +1068,7 @@ local function removeLootFromRegistry(part)
 end
 
 local function onLootTagAdded(part)
-    if part and part:IsA("BasePart") then
+    if state.lootEspEnabled and part and part:IsA("BasePart") then
         addLootToRegistry(part)
     end
 end
@@ -1079,6 +1080,7 @@ local function onLootTagRemoved(part)
 end
 
 local function onNewInstance(instance)
+    if not state.lootEspEnabled then return end
     if not instance or not instance.Parent or not instance:IsA("BasePart") then return end
     if isLootInstance(instance) and not CollectionService:HasTag(instance, LOOT_TAG) then
         pcall(function()
@@ -1106,8 +1108,6 @@ CollectionService:GetInstanceRemovedSignal(LOOT_TAG):Connect(onLootTagRemoved)
 
 local descendantAddedConn = Workspace.DescendantAdded:Connect(onNewInstance)
 registerConnection("LootDescendantAdded", descendantAddedConn)
-
-task.spawn(scanExistingLoot)
 
 local function updateLootESP()
     if not state.lootEspEnabled or not lp.Character then return end
@@ -1162,12 +1162,19 @@ lootEspBtn.MouseButton1Click:Connect(function()
     state.lootEspEnabled = not state.lootEspEnabled
     lootEspBtn.Text = state.lootEspEnabled and "Loot ESP: ON" or "Loot ESP: OFF"
     TweenService:Create(lootEspBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.lootEspEnabled and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-    if not state.lootEspEnabled then clearLootEsp() end
+    if state.lootEspEnabled then
+        if not lootInitialScanDone then
+            lootInitialScanDone = true
+            task.spawn(scanExistingLoot)
+        end
+    else
+        clearLootEsp()
+    end
 end)
 
 task.spawn(function()
     while state.scriptEnabled and state.lootPipelineActive do
-        task.wait(0.3)
+        task.wait(0.6)
         if state.lootEspEnabled then
             safePCall(updateLootESP, "Loot ESP")
         end
@@ -1362,7 +1369,7 @@ local function toggleXrayState()
             for i = 1, #allItems do
                 if not state.xray then break end
                 applyXrayToInstance(allItems[i])
-                if i % Config.XRAY_BATCH_SIZE == 0 then task.wait() end
+                if i % Config.XRAY_BATCH_SIZE == 0 then task.wait(0.03) end
             end
         end)
         local xrConn = Workspace.DescendantAdded:Connect(applyXrayToInstance)
@@ -1434,25 +1441,15 @@ local function updateObjectScannerUI()
         applySelectionBoxToPart(nil)
         return
     end
-
-    local ok = pcall(function()
-        if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(part.Name, 1, 16) end
-        local ownerStr = getPartNetworkOwner(part)
-        local distStr = "Infinite"
-        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-            local r = lp.Character.HumanoidRootPart
-            distStr = string.format("%d studs", math.floor((part.Position - r.Position).Magnitude))
-        end
-        local anchoredStr = part.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
-        if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
-    end)
-
-    if not ok then
-        selectedPart = nil
-        if selectedPartName then selectedPartName.Text = "Selected: None" end
-        if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
-        applySelectionBoxToPart(nil)
+    if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(part.Name, 1, 16) end
+    local ownerStr = getPartNetworkOwner(part)
+    local distStr = "Infinite"
+    if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+        local r = lp.Character.HumanoidRootPart
+        distStr = string.format("%d studs", math.floor((part.Position - r.Position).Magnitude))
     end
+    local anchoredStr = part.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
+    if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
 end
 
 searchByNameBtn.MouseButton1Click:Connect(function()
@@ -1546,9 +1543,7 @@ tpToPartBtn.MouseButton1Click:Connect(function()
     if not part or not part.Parent then return end
     local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
-    pcall(function()
-        root.CFrame = part.CFrame * CFrame.new(0, 3, 0)
-    end)
+    root.CFrame = part.CFrame * CFrame.new(0, 3, 0)
     updateObjectScannerUI()
 end)
 
@@ -1637,41 +1632,37 @@ local physicsSandboxConn = RunService.Heartbeat:Connect(function()
     if not shouldUpdate then return end
     lastPosition = currentPos
 
-    local selectedPhysicsPart = selectedPart
-    if not selectedPhysicsPart or not selectedPhysicsPart.Parent or selectedPhysicsPart.Anchored then return end
+    local physicsPart = selectedPart
+    if not physicsPart or not physicsPart.Parent or physicsPart.Anchored then return end
 
     if state.lockToMeEnabled then
-        local part = selectedPhysicsPart
-        if not part or not part.Parent then return end
-        local pOwner = getPartNetworkOwner(part)
+        local pOwner = getPartNetworkOwner(physicsPart)
         local canControl =
             pOwner == "Client (You)" or
             pOwner == "Server (Unassigned/Static)" or
             string.find(pOwner, "Static")
         if canControl then
             pcall(function()
-                if part and part.Parent then
-                    part.CFrame = root.CFrame * CFrame.new(0, 1, -5)
-                    part.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                    part.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                if physicsPart and physicsPart.Parent then
+                    physicsPart.CFrame = root.CFrame * CFrame.new(0, 1, -5)
+                    physicsPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    physicsPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
                 end
             end)
         end
     end
 
     if state.freezeEnabled then
-        local part = selectedPhysicsPart
-        if not part or not part.Parent then return end
-        local pOwner = getPartNetworkOwner(part)
+        local pOwner = getPartNetworkOwner(physicsPart)
         local canControl =
             pOwner == "Client (You)" or
             pOwner == "Server (Unassigned/Static)" or
             string.find(pOwner, "Static")
         if canControl then
             pcall(function()
-                if part and part.Parent then
-                    part.AssemblyLinearVelocity = Vector3.new(0, 0.08, 0)
-                    part.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                if physicsPart and physicsPart.Parent then
+                    physicsPart.AssemblyLinearVelocity = Vector3.new(0, 0.08, 0)
+                    physicsPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
                 end
             end)
         end
@@ -1730,7 +1721,7 @@ local function periodicVerification()
         task.wait(Config.SECURITY_HEARTBEAT)
         local allowed = false
         for _, id in ipairs(Config.ALLOWED_USER_IDS) do
-            if id == lp.UserId then allowed = true
+            if id == lp.UserId then allowed = true end
         end
         if not allowed then
             warn("[Security] Unauthorized modification detected! Shutting down.")
