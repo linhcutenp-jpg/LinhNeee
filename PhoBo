@@ -12,12 +12,9 @@ local HttpService = game:GetService("HttpService")
 local lp = Players.LocalPlayer
 local pg = lp:WaitForChild("PlayerGui")
 
--- ====================================================================
--- CONFIGURATION
--- ====================================================================
 local Config = {
     PROTECT = true,
-    ALLOWED_USER_IDS = { 7651295755, 7361198469 },
+    ALLOWED_USER_IDS = { 7651295755, 7361198469,  },
     SECURITY_HEARTBEAT = 30,
     MAX_SAFE_JUMP_POWER = 180,
     MAX_SAFE_WALK_SPEED = 500,
@@ -53,9 +50,6 @@ local XRAY_TAG = Config.XRAY_TAG
 local LOOT_TAG = Config.LOOT_TAG
 local LOOT_RADIUS_SQ = Config.LOOT_SCAN_RADIUS * Config.LOOT_SCAN_RADIUS
 
--- ====================================================================
--- WHITELIST CHECK
--- ====================================================================
 if Config.PROTECT then
     local allowed = false
     for _, id in ipairs(Config.ALLOWED_USER_IDS) do
@@ -67,14 +61,8 @@ end
 local existing = pg:FindFirstChild("MenuUI")
 if existing then pcall(function() existing:Destroy() end) end
 
--- ====================================================================
--- FORWARD DECLARATIONS (FIX: cleanupAll declared before used)
--- ====================================================================
 local cleanupAll
 
--- ====================================================================
--- SAFE PCALL WRAPPER
--- ====================================================================
 local function safePCall(func, errorMsg)
     local success, result = pcall(func)
     if not success then
@@ -83,9 +71,6 @@ local function safePCall(func, errorMsg)
     return success, result
 end
 
--- ====================================================================
--- STATE
--- ====================================================================
 local state = {
     hidden = false,
     speedOn = false, speedValue = 100,
@@ -111,17 +96,11 @@ local lastPhysicsUpdate = 0
 local lastForceUpdate = 0
 local lastPosition = nil
 
--- ====================================================================
--- JUMP MODULE VARIABLES (FIX: declared early)
--- ====================================================================
 local currentHumanoid = nil
 local isInternalUpdate = false
 local currentJumpMethod = "Power"
 local lastJumpReset = 0
 
--- ====================================================================
--- REGISTRY & DATA
--- ====================================================================
 local ConnectionRegistry = {}
 local espData = {}
 local lootRegistry = {}
@@ -136,7 +115,6 @@ local selectedPart = nil
 local lastSelectedPart = nil 
 local activeSelectionBox = nil 
 
--- UI Elements
 local win, header, stroke, title
 local distBar, distKnob, distValue
 local fillBar, fillKnob, fillValue
@@ -150,9 +128,6 @@ local draggingWindow, draggingDist, draggingFill, draggingJump, draggingXray, dr
 local dragStart, startPos = nil, nil
 local currentThemeName = Config.DEFAULT_THEME
 
--- ====================================================================
--- REGISTRY FUNCTIONS
--- ====================================================================
 local function registerConnection(id, conn)
     if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
     ConnectionRegistry[id] = conn
@@ -166,9 +141,6 @@ local function clearConnection(id)
     end
 end
 
--- ====================================================================
--- HELPERS
--- ====================================================================
 local function getRoot(char)
     return char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
 end
@@ -219,9 +191,6 @@ local function C(class, props, parent)
     return obj
 end
 
--- ====================================================================
--- UI CORE
--- ====================================================================
 local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Global, DisplayOrder = 9999 }, pg)
 win = C("Frame", { Name = "Window", Size = Config.UI_WINDOW_SIZE, Position = UDim2.fromScale(0.08, 0.15), BackgroundColor3 = Config.THEMES.Dark.Primary, BorderSizePixel = 0, Active = true }, screen)
 C("UICorner", { CornerRadius = UDim.new(0,14) }, win)
@@ -234,7 +203,6 @@ title = C("TextLabel", { Size = UDim2.new(1,-140,1,0), Position = UDim2.fromOffs
 local toggleBtn = C("TextButton", { Name = "ToggleBtn", Size = UDim2.fromOffset(65,26), Position = UDim2.new(1,-110,0.5,-13), BackgroundColor3 = Config.THEMES.Dark.Accent, BorderSizePixel = 0, Text = "Hide", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 13 }, header)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, toggleBtn)
 
--- Tabs
 local tabs = { "Main", "Combat/ESP", "System" }
 local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,32), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
 local tabButtons, tabContents = {}, {}
@@ -265,9 +233,6 @@ local function TabRow(tabIndex, labelText)
     return row
 end
 
--- ====================================================================
--- PERSISTENT CONFIG
--- ====================================================================
 local function saveUIPreset()
     if writefile then
         local config = {
@@ -301,9 +266,6 @@ local function loadUIPreset()
     end
 end
 
--- ====================================================================
--- DRAG & DROP
--- ====================================================================
 header.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         draggingWindow = true
@@ -402,9 +364,6 @@ local dragEndConnection = UIS.InputEnded:Connect(function(input)
 end)
 registerConnection("DragEndConnection", dragEndConnection)
 
--- ====================================================================
--- MAIN TAB UI
--- ====================================================================
 local themeRow = TabRow(1, "Theme Preset")
 local themeHolder = C("Frame", { Parent = themeRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
 C("UIGridLayout", { CellSize = UDim2.fromOffset(62,26), CellPadding = UDim2.fromOffset(4,4) }, themeHolder)
@@ -420,7 +379,6 @@ for name, _ in pairs(Config.THEMES) do
     end)
 end
 
--- Speed
 local speedRow = TabRow(1, "WalkSpeed Hack")
 speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBtn)
@@ -446,9 +404,6 @@ speedBtn.MouseButton1Click:Connect(function()
     applyCharacterPhysics(lp.Character)
 end)
 
--- ====================================================================
--- JUMP MODULE
--- ====================================================================
 local function detectJumpMethod(humanoid)
     return humanoid.UseJumpPower and "Power" or "Height"
 end
@@ -586,9 +541,6 @@ local function hookMultiJumpState(char)
     end
 end
 
--- ====================================================================
--- PHYSICS
--- ====================================================================
 local function applyCharacterPhysics(char)
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -623,7 +575,6 @@ local sHeartbeat = RunService.Heartbeat:Connect(function()
 end)
 registerConnection("SpeedHeartbeat", sHeartbeat)
 
--- JUMP UI
 local jumpHeightRow = TabRow(1, "Jump Height")
 jumpBtn = C("TextButton", { Parent = jumpHeightRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, jumpBtn)
@@ -679,9 +630,6 @@ multiJumpBtn.MouseButton1Click:Connect(function()
     TweenService:Create(multiJumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.multiJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
--- ====================================================================
--- NOCLIP
--- ====================================================================
 local noclipMasterRow = TabRow(1, "Noclip Core")
 noclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Noclip: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, noclipBtn)
@@ -743,9 +691,6 @@ local noclipConn = RunService.PreRender:Connect(function()
 end)
 registerConnection("NoclipEngine", noclipConn)
 
--- ====================================================================
--- ESP MODULE
--- ====================================================================
 local espRowMaster = TabRow(2, "Player ESP Core")
 espBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,75,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, espBtn)
@@ -786,7 +731,6 @@ local lootRow = TabRow(2, "Premium Loot ESP")
 lootEspBtn = C("TextButton", { Parent = lootRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Loot/Chest ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, lootEspBtn)
 
--- ESP Functions
 local function getESPColor(plr)
     if lp.Team and plr.Team then
         return (plr.Team == lp.Team) and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
@@ -794,7 +738,6 @@ local function getESPColor(plr)
     return Color3.fromRGB(255,170,0)
 end
 
--- FIX: checkESPFilterValid logic
 local function checkESPFilterValid(plr)
     if state.espFilter == "All" then
         return true
@@ -819,7 +762,6 @@ local function createESPForPlayer(plr)
     local data = { connections = {}, retryConn = nil, lastDist = nil }
     espData[plr] = data
 
-    -- FIX: setupCharEsp syntax error
     local function setupCharEsp(char)
         if not state.esp or not char then return end
         
@@ -1021,9 +963,6 @@ local espRenderConn = RunService.RenderStepped:Connect(function(dt)
 end)
 registerConnection("ESPRenderLoop", espRenderConn)
 
--- ====================================================================
--- LOOT ESP
--- ====================================================================
 local function isLootInstance(instance)
     if not instance:IsA("BasePart") then return false end
     local nameLower = string.lower(instance.Name)
@@ -1188,9 +1127,6 @@ end)
 registerConnection("PlayerAddedESP", pAddedConn)
 registerConnection("PlayerRemovingESP", pRemovingConn)
 
--- ====================================================================
--- FLY SYSTEM
--- ====================================================================
 local flyRow = TabRow(3, "Premium Flight Engine")
 flyBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "FLY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
@@ -1313,9 +1249,6 @@ CAS:BindAction("FlyActionKey", function(_, actionState)
     end
 end, false, Enum.KeyCode.B)
 
--- ====================================================================
--- XRAY SYSTEM
--- ====================================================================
 local xrayRow = TabRow(3, "Environment XRay")
 xrayBtnUI = C("TextButton", { Parent = xrayRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "XRAY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, xrayBtnUI)
@@ -1380,9 +1313,6 @@ local function toggleXrayState()
 end
 xrayBtnUI.MouseButton1Click:Connect(toggleXrayState)
 
--- ====================================================================
--- BRING PART
--- ====================================================================
 local scannerTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
 C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Premium Object Scanner & Bring Tool ---", TextColor3 = Color3.fromRGB(150,130,220), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, scannerTitleRow)
 
@@ -1579,9 +1509,6 @@ bringAllBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ====================================================================
--- PHYSICS SANDBOX
--- ====================================================================
 local sandboxTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
 C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Physics Sandbox Environment ---", TextColor3 = Color3.fromRGB(210,120,40), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, sandboxTitleRow)
 
@@ -1670,9 +1597,6 @@ local physicsSandboxConn = RunService.Heartbeat:Connect(function()
 end)
 registerConnection("PhysicsSandboxCore", physicsSandboxConn)
 
--- ====================================================================
--- INITIALIZATION
--- ====================================================================
 local function setupCharacterSignals(char)
     clearConnection("CharDescendantAdded")
     clearConnection("CharDescendantRemoving")
@@ -1713,9 +1637,6 @@ if lp.Character then
 end
 pcall(loadUIPreset)
 
--- ====================================================================
--- SECURITY: PERIODIC VERIFICATION
--- ====================================================================
 local function periodicVerification()
     while state.scriptEnabled do
         task.wait(Config.SECURITY_HEARTBEAT)
@@ -1732,9 +1653,6 @@ end
 
 task.spawn(periodicVerification)
 
--- ====================================================================
--- MENU TOGGLE
--- ====================================================================
 CAS:BindAction("ToggleMenu_RShift", function(_, actionState)
     if UIS:GetFocusedTextBox() then return end
     if actionState == Enum.UserInputState.Begin then
@@ -1756,9 +1674,6 @@ toggleBtn.MouseButton1Click:Connect(function()
     toggleBtn.Text = state.hidden and "Show" or "Hide"
 end)
 
--- ====================================================================
--- CLEANUP
--- ====================================================================
 cleanupAll = function()
     print("[System] Unloading...")
     state.scriptEnabled = false
@@ -1785,7 +1700,7 @@ end
 _G.UnloadLinhScript = cleanupAll
 
 print("=" .. string.rep("=", 60))
-print("Linh Script Premium v10.7.3 - Final Release Loaded!")
+print("Linh Script Premium v10.7.3")
 print("Features: ESP | Jump | Loot ESP | Xray | Fly | Bring Part | Physics Sandbox")
 print("Hotkey: Right Shift (Menu) | B (Fly)")
 print("To unload: _G.UnloadLinhScript()")
