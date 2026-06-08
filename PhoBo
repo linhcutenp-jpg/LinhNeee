@@ -1,1424 +1,1646 @@
-print("Hello, Baby <3")
-print("Close (P) toggle UI, Q: Bring Player, ShiftRight: Hide/Show")
+print("Gello, Bbi :YoyoHeart: - Enterprise Grade v10.7.3 - Final Release")
 
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local ContextActionService = game:GetService("ContextActionService")
-local RunService = game:GetService("RunService")
+local Players, TweenService, UIS, CAS, RunService, Workspace, CollectionService, HttpService =
+    game:GetService("Players"),
+    game:GetService("TweenService"),
+    game:GetService("UserInputService"),
+    game:GetService("ContextActionService"),
+    game:GetService("RunService"),
+    game:GetService("Workspace"),
+    game:GetService("CollectionService"),
+    game:GetService("HttpService")
 
 local lp = Players.LocalPlayer
 local pg = lp:WaitForChild("PlayerGui")
+
+-- ====================================================================
+-- CONFIGURATION OBJECT
+-- ====================================================================
+local Config = {
+    PROTECT = true,
+    ALLOWED_USER_IDS = { 7651295755, 7361198469 },
+    SECURITY_HEARTBEAT = 30,
+    MAX_SAFE_JUMP_POWER = 180,
+    MAX_SAFE_WALK_SPEED = 500,
+    ESP_DISTANCE = 500,
+    ESP_FILL_TRANSPARENCY = 0.5,
+    ESP_UPDATE_INTERVAL = 0.06,
+    ESP_DIST_MIN = 50,
+    ESP_DIST_MAX = 3500,
+    LOOT_SCAN_RADIUS = 400,
+    LOOT_MAX_RENDER = 35,
+    LOOT_TAG = "LootableObject_v10_7",
+    LOOT_KEYWORDS = { "chest", "loot", "dropped", "item", "coin", "gem", "crate", "supply" },
+    XRAY_TAG = "XrayManaged_v10_7",
+    XRAY_INTENSITY = 0.65,
+    XRAY_BATCH_SIZE = 250,
+    PHYSICS_THROTTLE_FPS = 1 / 30,
+    FORCE_UPDATE_INTERVAL = 2,
+    JUMP_THROTTLE = 0.15,
+    FLY_DEFAULT_SPEED = 60,
+    FLY_SPEED_MIN = 20,
+    FLY_SPEED_MAX = 300,
+    THEMES = {
+        Dark = { Primary = Color3.fromRGB(30,30,35), Accent = Color3.fromRGB(90,63,150), Text = Color3.fromRGB(235,235,240) },
+        Pink = { Primary = Color3.fromRGB(248,224,245), Accent = Color3.fromRGB(255,111,206), Text = Color3.fromRGB(60,60,60) }
+    },
+    DEFAULT_THEME = "Dark",
+    UI_WINDOW_SIZE = UDim2.fromOffset(460, 710),
+    UI_SCROLL_CANVAS = UDim2.new(0,0,0,890),
+}
+
+local ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE
+local XRAY_TAG = Config.XRAY_TAG
+local LOOT_TAG = Config.LOOT_TAG
+local LOOT_RADIUS_SQ = Config.LOOT_SCAN_RADIUS * Config.LOOT_SCAN_RADIUS
+
+-- ====================================================================
+-- SECURITY: Whitelist Check
+-- ====================================================================
+if Config.PROTECT then
+    local allowed = false
+    for _, id in ipairs(Config.ALLOWED_USER_IDS) do
+        if id == lp.UserId then allowed = true; break end
+    end
+    if not allowed then return end
+end
+
 local existing = pg:FindFirstChild("MenuUI")
-if existing then
-    pcall(function() existing:Destroy() end)
+if existing then pcall(function() existing:Destroy() end) end
+
+-- ====================================================================
+-- SAFE PCALL WRAPPER
+-- ====================================================================
+local function safePCall(func, errorMsg)
+    local success, result = pcall(func)
+    if not success then
+        warn("[SafePCall] " .. (errorMsg or "Unknown") .. ": " .. tostring(result))
+    end
+    return success, result
+end
+
+-- ====================================================================
+-- STATE MANAGEMENT
+-- ====================================================================
+local state = {
+    hidden = false,
+    speedOn = false, speedValue = 100,
+    jumpEnabled = false, jumpHeight = 100,
+    infJump = false, multiJump = false,
+    noclip = false, silentNoclip = false,
+    esp = false, xray = false,
+    flying = false, flySpeed = Config.FLY_DEFAULT_SPEED,
+    flyMethod = "BodyVelocity",
+    espMode = "Both",
+    espFilter = "All",
+    lootEspEnabled = false,
+    xrayIntensity = Config.XRAY_INTENSITY,
+    lockToMeEnabled = false,
+    freezeEnabled = false,
+    scriptEnabled = true,
+    lootPipelineActive = true,
+}
+
+local jumpCount = 0
+local maxJumps = 2
+local lastPhysicsUpdate = 0
+local lastForceUpdate = 0
+local lastPosition = nil
+
+-- ====================================================================
+-- CENTRAL REGISTRY
+-- ====================================================================
+local ConnectionRegistry = {}
+local espData = {}
+local lootRegistry = {}
+local originalCollisions = {}
+local characterPartsCache = {}
+local xrayOriginalParts = {}
+local overlapParams = OverlapParams.new()
+
+local flyBodyVelocity, flyBodyGyro = nil, nil
+local selectedPart = nil
+local lastSelectedPart = nil 
+local activeSelectionBox = nil 
+
+-- UI Elements
+local win, header, stroke, title
+local distBar, distKnob, distValue
+local fillBar, fillKnob, fillValue
+local jumpBar, jumpKnob, jumpValue
+local xrayBar, xrayKnob, xrayValue
+local flySpeedBar, flySpeedKnob, flySpeedValue 
+local speedNum, speedBtn, jumpBtn, infBtn, multiJumpBtn, noclipBtn, silentNoclipBtn, espBtn, espFilterBtn, espModeBtn, flyBtn, flyMethodBtn, xrayBtnUI, lootEspBtn
+local selectPartBtn, partNameBox, searchByNameBtn, selectedPartName, partInfoLabel, bringBtn, bringAllBtn, tpToPartBtn, reselectLastBtn
+local lockToMeBtn, freezeBtn
+local draggingWindow, draggingDist, draggingFill, draggingJump, draggingXray, draggingFlySpeed = false, false, false, false, false, false
+local dragStart, startPos = nil, nil
+local currentThemeName = Config.DEFAULT_THEME
+
+-- ====================================================================
+-- REGISTRY FUNCTIONS
+-- ====================================================================
+local function registerConnection(id, conn)
+    if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
+    ConnectionRegistry[id] = conn
+    return conn
+end
+
+local function clearConnection(id)
+    if ConnectionRegistry[id] then
+        pcall(function() ConnectionRegistry[id]:Disconnect() end)
+        ConnectionRegistry[id] = nil
+    end
+end
+
+-- ====================================================================
+-- HELPER FUNCTIONS
+-- ====================================================================
+local function getRoot(char)
+    return char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+end
+
+local function isHumanoidValid(hum)
+    return hum and hum.Parent and hum.Parent:IsA("Model") and hum.Parent.Parent == Workspace
+end
+
+local function getPartNetworkOwner(part)
+    if not part then return "Invalid (Nil)" end
+    if part.Anchored then return "Static (Server/Anchored)" end
+    
+    local success, owner = pcall(function() return part:GetNetworkOwner() end)
+    if not success then return "Unknown (pcall failed)" end
+    
+    if owner == lp then return "Client (You)" end
+    if owner == nil then return "Server (Unassigned/Static)" end
+    return "Player: " .. owner.Name
+end
+
+local function isCharacterPart(part)
+    if not part or not part.Parent then return false end
+    local model = part:FindFirstAncestorOfClass("Model")
+    if model and Players:GetPlayerFromCharacter(model) then return true end
+    if part.Parent:IsA("Accessory") and part.Parent.Parent then
+        if Players:GetPlayerFromCharacter(part.Parent.Parent) then return true end
+    end
+    return false
 end
 
 local function C(class, props, parent)
     local obj = Instance.new(class)
-    if props then
-        for k, v in pairs(props) do
-            pcall(function() obj[k] = v end)
-        end
-    end
+    if props then for k, v in pairs(props) do pcall(function() obj[k] = v end) end end
     if parent then obj.Parent = parent end
     return obj
 end
-local PROTECT = true
-local ALLOWED_USER_IDS = { 
-	9002922877,
-    7651295755,
-    1658489525,
-}
-if PROTECT then
-    local allowed = false
-    for _, id in ipairs(ALLOWED_USER_IDS) do
-        if id == lp.UserId then allowed = true; break end
-    end
-    if not allowed then
-        warn("[MyBanhMi] Unauthorized user detected (UserId=" .. tostring(lp.UserId) .. "). Script will stop.")
-        return
-    end
-end
 
-local Themes = {
-    Dark = { Primary = Color3.fromRGB(24,24,30), Accent = Color3.fromRGB(145,145,145), Text = Color3.fromRGB(235,240,235), ButtonText = Color3.fromRGB(235,235,240) },
-    Pink = { Primary = Color3.fromRGB(255,187,225), Accent = Color3.fromRGB(198,117,225), Text = Color3.fromRGB(50,50,50), ButtonText = Color3.fromRGB(240,240,240) },
-    Blue = { Primary = Color3.fromRGB(135,206,235), Accent = Color3.fromRGB(68,142,228), Text = Color3.fromRGB(255,255,255), ButtonText = Color3.fromRGB(240,240,240) },
-    White = { Primary = Color3.fromRGB(255,255,255), Accent = Color3.fromRGB(50,50,50), Text = Color3.fromRGB(0,0,0), ButtonText = Color3.fromRGB(0,0,0) }
-}
-local Fonts = { Enum.Font.Gotham, Enum.Font.GothamBold, Enum.Font.Ubuntu, Enum.Font.Roboto, Enum.Font.FredokaOne }
-
-local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false }, pg)
-screen.Enabled = true
-local win = C("Frame", {
-    Name = "Window",
-    Size = UDim2.fromOffset(420, 480),
-    Position = UDim2.fromScale(0.08, 0.2),
-    BackgroundColor3 = Color3.fromRGB(30,30,35),
-    BorderSizePixel = 0,
-    Active = true
-}, screen)
+-- ====================================================================
+-- UI CORE
+-- ====================================================================
+local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Global, DisplayOrder = 9999 }, pg)
+win = C("Frame", { Name = "Window", Size = Config.UI_WINDOW_SIZE, Position = UDim2.fromScale(0.08, 0.15), BackgroundColor3 = Config.THEMES.Dark.Primary, BorderSizePixel = 0, Active = true }, screen)
 C("UICorner", { CornerRadius = UDim.new(0,14) }, win)
-local stroke = C("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Color3.fromRGB(90,90,100) }, win)
+stroke = C("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Config.THEMES.Dark.Accent }, win)
 
-local header = C("Frame", { Size = UDim2.new(1,0,0,42), BackgroundTransparency = 0.15, BackgroundColor3 = Color3.fromRGB(50,50,60), BorderSizePixel = 0 }, win)
+header = C("Frame", { Size = UDim2.new(1,0,0,42), BackgroundTransparency = 0.15, BackgroundColor3 = Color3.fromRGB(50,50,60), BorderSizePixel = 0 }, win)
 C("UICorner", { CornerRadius = UDim.new(0,14) }, header)
-local title = C("TextLabel", {
-    Size = UDim2.new(1,-100,1,0),
-    Position = UDim2.fromOffset(14,0),
-    BackgroundTransparency = 1,
-    Text = "Linh Is Script <3",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamBold,
-    TextSize = 18,
-    TextXAlignment = Enum.TextXAlignment.Left
-}, header)
+title = C("TextLabel", { Size = UDim2.new(1,-140,1,0), Position = UDim2.fromOffset(14,0), BackgroundTransparency = 1, Text = "Linh Script Premium v10.7.3", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left }, header)
 
-local toggleBtn = C("TextButton", {
-    Name = "ToggleBtn",
-    Size = UDim2.fromOffset(80,26),
-    Position = UDim2.new(1,-90,0.5,-13),
-    BackgroundColor3 = Color3.fromRGB(90,63,150),
-    BorderSizePixel = 0,
-    Text = "Hide",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamMedium,
-    TextSize = 14,
-    AutoButtonColor = false
-}, header)
-C("UICorner", { CornerRadius = UDim.new(0,10) }, toggleBtn)
+local toggleBtn = C("TextButton", { Name = "ToggleBtn", Size = UDim2.fromOffset(65,26), Position = UDim2.new(1,-110,0.5,-13), BackgroundColor3 = Config.THEMES.Dark.Accent, BorderSizePixel = 0, Text = "Hide", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 13 }, header)
+C("UICorner", { CornerRadius = UDim.new(0,8) }, toggleBtn)
 
-local tabs = { "Main", "Misc", "Setting" }
-local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,36), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
-local tabButtons = {}
-local tabContents = {}
+local tabs = { "Main", "Combat/ESP", "System" }
+local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,32), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
+local tabButtons, tabContents = {}, {}
 local currentTab = 1
+
 for i, name in ipairs(tabs) do
-    local btn = C("TextButton", {
-        Parent = tabHolder,
-        Size = UDim2.new(0,100,0,28),
-        Position = UDim2.new(0,(i-1)*106,0,4),
-        BackgroundColor3 = Color3.fromRGB(70,70,80),
-        BorderSizePixel = 0,
-        Text = name,
-        TextColor3 = Color3.fromRGB(235,235,240),
-        Font = Enum.Font.GothamBold,
-        TextSize = 14,
-        AutoButtonColor = false
-    }, tabHolder)
+    local btn = C("TextButton", { Parent = tabHolder, Size = UDim2.new(0,130,0,28), Position = UDim2.new(0,(i-1)*136,0,2), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = name, TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, btn)
     tabButtons[i] = btn
-
-    local content = C("Frame", {
-        Parent = win,
-        Size = UDim2.new(1,-20,1,-98),
-        Position = UDim2.new(0,10,0,90),
-        BackgroundTransparency = 1,
-        Visible = (i == currentTab)
-    }, win)
-    C("UIListLayout", {
-        FillDirection = Enum.FillDirection.Vertical,
-        Padding = UDim.new(0,8),
-        HorizontalAlignment = Enum.HorizontalAlignment.Left,
-        SortOrder = Enum.SortOrder.LayoutOrder
-    }, content)
+    
+    local content = C("ScrollingFrame", { Parent = win, Size = UDim2.new(1,-20,1,-100), Position = UDim2.new(0,10,0,88), BackgroundTransparency = 1, Visible = (i == currentTab), CanvasSize = Config.UI_SCROLL_CANVAS, ScrollBarThickness = 4, ScrollBarImageColor3 = Color3.fromRGB(100,100,120) })
+    C("UIListLayout", { FillDirection = Enum.FillDirection.Vertical, Padding = UDim.new(0,10), SortOrder = Enum.SortOrder.LayoutOrder }, content)
     tabContents[i] = content
-
+    
     btn.MouseButton1Click:Connect(function()
-        if animating then return end
         currentTab = i
         for j = 1, #tabs do
-            tabContents[j].Visible = not hidden and (j == currentTab)
-            tabButtons[j].BackgroundColor3 = (j == currentTab) and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80)
+            tabContents[j].Visible = not state.hidden and (j == currentTab)
+            tabButtons[j].BackgroundColor3 = (j == currentTab) and Config.THEMES.Dark.Accent or Color3.fromRGB(70,70,80)
         end
     end)
 end
-tabButtons[1].BackgroundColor3 = Color3.fromRGB(130,130,220)
-
-local hidden = false
-local animating = false
-local animDur = 0.28
-local easingStyle = Enum.EasingStyle.Quad
-local easingDir = Enum.EasingDirection.Out
-
-local speedOn = false
-local speedValue = 100
-local jumpEnabled = false
-local infJump = false
-local noclip = false
-local esp = false
-local xray = false
-
-local flying = false
-local bv = nil
-local flySpeed = 60
-local flyConn = nil
-
-local noclipConn = nil
-local allConns = {}
-
-local function tweenAllTexts(target)
-    local tweens = {}
-    for _, v in pairs(win:GetDescendants()) do
-        if (v:IsA("TextLabel") or v:IsA("TextButton")) and v ~= toggleBtn then
-            if target == 0 then v.TextTransparency = 1 end -- prepare for fade in
-            local ok, t = pcall(function()
-                return TweenService:Create(v, TweenInfo.new(0.2, easingStyle, easingDir), {TextTransparency = target})
-            end)
-            if ok and t then table.insert(tweens, t) end
-        end
-    end
-    return tweens
-end
-
-local function setHidden(state)
-    if animating then return end
-    animating = true
-    hidden = state
-    toggleBtn.Text = hidden and "Show" or "Hide"
-
-    if hidden then
-        for _, v in pairs(tabButtons) do v.Active = false end
-
-        local tweens = tweenAllTexts(1)
-        for _, t in ipairs(tweens) do t:Play() end
-
-        local sizeTween = TweenService:Create(win, TweenInfo.new(animDur, easingStyle, easingDir), {Size = UDim2.fromOffset(400, 70)})
-        sizeTween:Play()
-        sizeTween.Completed:Wait()
-
-        for _, v in pairs(tabButtons) do v.Visible = false end
-        for _, v in pairs(tabContents) do v.Visible = false end
-
-    else
-        for _, v in pairs(tabButtons) do
-            v.Visible = true
-            v.Active = false
-        end
-        for i = 1, #tabContents do
-            tabContents[i].Visible = (i == currentTab)
-        end
-
-        local sizeTween = TweenService:Create(win, TweenInfo.new(animDur, easingStyle, easingDir), {Size = UDim2.fromOffset(420, 480)})
-        sizeTween:Play()
-        sizeTween.Completed:Wait()
-
-        local tweens = tweenAllTexts(0)
-        for _, t in ipairs(tweens) do t:Play() end
-
-        for _, v in pairs(tabButtons) do v.Active = true end
-    end
-
-    animating = false
-end
-
-toggleBtn.MouseButton1Click:Connect(function()
-    setHidden(not hidden)
-end)
-
-local bindToggleConn = ContextActionService:BindAction("ToggleMenu_RShift", function(name, state, input)
-    if state == Enum.UserInputState.Begin then
-        setHidden(not hidden)
-    end
-    return Enum.ContextActionResult.Sink
-end, false, Enum.KeyCode.RightShift)
-
-local closeBtn = C("TextButton", {
-    Name = "CloseBtn",
-    Size = UDim2.fromOffset(26,26),
-    Position = UDim2.new(1,-30,0.5,-13),
-    BackgroundColor3 = Color3.fromRGB(200,60,60),
-    BorderSizePixel = 0,
-    Text = "X",
-    TextColor3 = Color3.fromRGB(255,255,255),
-    Font = Enum.Font.GothamBold,
-    TextSize = 16,
-    AutoButtonColor = false
-}, header)
-C("UICorner", { CornerRadius = UDim.new(0,6) }, closeBtn)
-
-closeBtn.MouseEnter:Connect(function()
-    TweenService:Create(closeBtn, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(255,80,80)}):Play()
-end)
-closeBtn.MouseLeave:Connect(function()
-    TweenService:Create(closeBtn, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(200,60,60)}):Play()
-end)
-
-closeBtn.MouseButton1Click:Connect(function()
-    win.Visible = false
-end)
-
-do
-    local dragging = false
-    local dragStart, startPos
-    header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = win.Position
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-    end)
-end
+tabButtons[1].BackgroundColor3 = Config.THEMES.Dark.Accent
 
 local function TabRow(tabIndex, labelText)
-    local row = C("Frame", { Size = UDim2.new(1,0,0,36), BackgroundTransparency = 1 }, tabContents[tabIndex])
-    local lbl = C("TextLabel", { Size = UDim2.new(0,120,1,0), BackgroundTransparency = 1, Text = labelText, TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left }, row)
-    return row, lbl
+    local row = C("Frame", { Size = UDim2.new(1,-10,0,36), BackgroundTransparency = 1 }, tabContents[tabIndex])
+    C("TextLabel", { Size = UDim2.new(0,130,1,0), BackgroundTransparency = 1, Text = labelText, TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }, row)
+    return row
 end
 
-local themeRow = TabRow(1, "Theme")
-local themeHolder = C("Frame", { Parent = themeRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 }, themeRow)
-local flow = C("UIGridLayout", { CellSize = UDim2.fromOffset(60,26), CellPadding = UDim2.fromOffset(6,6), FillDirectionMaxCells = 5, SortOrder = Enum.SortOrder.LayoutOrder }, themeHolder)
-local currentTheme = "Dark"
+-- ====================================================================
+-- PERSISTENT CONFIGURATION
+-- ====================================================================
+local function saveUIPreset()
+    if writefile then
+        local config = {
+            theme = currentThemeName, speedValue = state.speedValue, jumpHeight = state.jumpHeight,
+            espDistance = Config.ESP_DISTANCE, espFill = Config.ESP_FILL_TRANSPARENCY,
+            xrayIntensity = state.xrayIntensity, espMode = state.espMode, espFilter = state.espFilter,
+            flyMethod = state.flyMethod, flySpeed = state.flySpeed
+        }
+        pcall(function() writefile("LinhPremium_v10_7.json", HttpService:JSONEncode(config)) end)
+    end
+end
 
-local function applyTheme(name)
-    local t = Themes[name] or Themes.Dark
-    currentTheme = name
-    pcall(function()
-        win.BackgroundColor3 = t.Primary
-        header.BackgroundColor3 = t.Accent
-        title.TextColor3 = t.Text
-        toggleBtn.TextColor3 = t.Text
-        stroke.Color = t.Accent:Lerp(Color3.new(1,1,1), 0.15)
-        for _, v in pairs(win:GetDescendants()) do
-            if v:IsA("TextButton") then
-                v.TextColor3 = t.ButtonText
-            elseif v:IsA("TextLabel") then
-                v.TextColor3 = t.Text
+local function loadUIPreset()
+    if isfile and isfile("LinhPremium_v10_7.json") then
+        local success, data = pcall(function() return HttpService:JSONDecode(readfile("LinhPremium_v10_7.json")) end)
+        if success and data then
+            if data.theme then currentThemeName = data.theme; win.BackgroundColor3 = Config.THEMES[data.theme].Primary; stroke.Color = Config.THEMES[data.theme].Accent end
+            if data.speedValue then state.speedValue = data.speedValue; if speedNum then speedNum.Text = tostring(state.speedValue) end end
+            if data.jumpHeight then state.jumpHeight = math.min(data.jumpHeight, Config.MAX_SAFE_JUMP_POWER); if jumpValue then jumpValue.Text = tostring(state.jumpHeight) end end
+            if data.espDistance then Config.ESP_DISTANCE = data.espDistance; ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE; if distValue then distValue.Text = tostring(Config.ESP_DISTANCE) end end
+            if data.xrayIntensity then state.xrayIntensity = data.xrayIntensity; if xrayValue then xrayValue.Text = string.format("%.2f", state.xrayIntensity) end end
+            if data.espMode then state.espMode = data.espMode; if espModeBtn then espModeBtn.Text = "Mode: " .. state.espMode end end
+            if data.espFilter then state.espFilter = data.espFilter; if espFilterBtn then espFilterBtn.Text = "Filter: " .. state.espFilter end end
+            if data.flyMethod then state.flyMethod = data.flyMethod; if flyMethodBtn then flyMethodBtn.Text = "Engine: " .. state.flyMethod end end
+            if data.flySpeed then state.flySpeed = data.flySpeed; if flySpeedValue then flySpeedValue.Text = tostring(state.flySpeed) end end
+        end
+    end
+end
+
+-- ====================================================================
+-- UI DRAG & DROP
+-- ====================================================================
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingWindow = true; dragStart = input.Position; startPos = win.Position
+    end
+end)
+
+local throttleDelay, lastUpdate = 1/50, 0
+local dragConnection = UIS.InputChanged:Connect(function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+    
+    local now = time()
+    if now - lastUpdate < throttleDelay then return end
+    lastUpdate = now
+
+    if draggingWindow and dragStart and startPos then
+        local delta = input.Position - dragStart
+        win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+    
+    if draggingDist and distBar and distKnob then
+        local barX, barW = distBar.AbsolutePosition.X, distBar.AbsoluteSize.X
+        if barW > 0 then
+            local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
+            Config.ESP_DISTANCE = math.floor(Config.ESP_DIST_MIN + rel * (Config.ESP_DIST_MAX - Config.ESP_DIST_MIN))
+            ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE
+            distKnob.Position = UDim2.new(rel, -7, 0.5, -7)
+            distValue.Text = tostring(Config.ESP_DISTANCE)
+        end
+    end
+    
+    if draggingFill and fillBar and fillKnob then
+        local barX, barW = fillBar.AbsolutePosition.X, fillBar.AbsoluteSize.X
+        if barW > 0 then
+            local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
+            Config.ESP_FILL_TRANSPARENCY = rel
+            fillKnob.Position = UDim2.new(rel, -7, 0.5, -7)
+            fillValue.Text = string.format("%.2f", rel)
+            for _, d in pairs(espData) do if d.highlight then d.highlight.FillTransparency = rel end end
+        end
+    end
+    
+    if draggingJump and jumpBar and jumpKnob then
+        local barX, barW = jumpBar.AbsolutePosition.X, jumpBar.AbsoluteSize.X
+        if barW > 0 then
+            local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
+            state.jumpHeight = math.floor(50 + rel * 200)
+            state.jumpHeight = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
+            jumpKnob.Position = UDim2.new(rel, -7, 0.5, -7)
+            jumpValue.Text = tostring(state.jumpHeight)
+            if state.jumpEnabled and currentHumanoid then enforceJumpValue(currentHumanoid) end
+        end
+    end
+    
+    if draggingXray and xrayBar and xrayKnob then
+        local barX, barW = xrayBar.AbsolutePosition.X, xrayBar.AbsoluteSize.X
+        if barW > 0 then
+            local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
+            state.xrayIntensity = 0.3 + rel * 0.6
+            xrayKnob.Position = UDim2.new(rel, -7, 0.5, -7)
+            xrayValue.Text = string.format("%.2f", state.xrayIntensity)
+            if state.xray then
+                for _, p in ipairs(CollectionService:GetTagged(XRAY_TAG)) do
+                    p.Transparency = state.xrayIntensity
+                end
             end
         end
+    end
+    
+    if draggingFlySpeed and flySpeedBar and flySpeedKnob then
+        local barX, barW = flySpeedBar.AbsolutePosition.X, flySpeedBar.AbsoluteSize.X
+        if barW > 0 then
+            local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
+            state.flySpeed = math.floor(Config.FLY_SPEED_MIN + rel * (Config.FLY_SPEED_MAX - Config.FLY_SPEED_MIN))
+            flySpeedKnob.Position = UDim2.new(rel, -7, 0.5, -7)
+            flySpeedValue.Text = tostring(state.flySpeed)
+        end
+    end
+end)
+registerConnection("DragConnection", dragConnection)
+
+local dragEndConnection = UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingWindow, draggingDist, draggingFill, draggingJump, draggingXray, draggingFlySpeed = false, false, false, false, false, false
+        saveUIPreset()
+    end
+end)
+registerConnection("DragEndConnection", dragEndConnection)
+
+-- ====================================================================
+-- MAIN TAB UI
+-- ====================================================================
+local themeRow = TabRow(1, "Theme Preset")
+local themeHolder = C("Frame", { Parent = themeRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
+C("UIGridLayout", { CellSize = UDim2.fromOffset(62,26), CellPadding = UDim2.fromOffset(4,4) }, themeHolder)
+
+for name, _ in pairs(Config.THEMES) do
+    local b = C("TextButton", { Text = name, BackgroundColor3 = Color3.fromRGB(70,70,80), TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 12, BorderSizePixel = 0 }, themeHolder)
+    C("UICorner", { CornerRadius = UDim.new(0,6) }, b)
+    b.MouseButton1Click:Connect(function()
+        currentThemeName = name
+        win.BackgroundColor3 = Config.THEMES[name].Primary
+        stroke.Color = Config.THEMES[name].Accent
+        saveUIPreset()
     end)
 end
 
-for name, _ in pairs(Themes) do
-    local b = C("TextButton", { Name = "Theme_" .. name, Text = name, BackgroundColor3 = Color3.fromRGB(70,70,80), TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 14, BorderSizePixel = 0 }, themeHolder)
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, b)
-    b.MouseEnter:Connect(function() TweenService:Create(b, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(95,95,110) }):Play() end)
-    b.MouseLeave:Connect(function() TweenService:Create(b, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(70,70,80) }):Play() end)
-    b.MouseButton1Click:Connect(function() applyTheme(name) end)
-end
-
-do
-    local transRow = TabRow(3, "Transparency")
-    local slider = C("Frame", {Parent = transRow, Size = UDim2.new(1,-180,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1}, transRow)
-    local bar = C("Frame", {Parent = slider, Size = UDim2.new(1,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0}, slider)
-    C("UICorner", {CornerRadius = UDim.new(1,0)}, bar)
-    local knob = C("Frame", {Parent = slider, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0,0,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0}, slider)
-    C("UICorner", {CornerRadius = UDim.new(1,0)}, knob)
-
-    local percLabel = C("TextLabel", {Parent = transRow, Size = UDim2.new(0,60,1,0), Position = UDim2.new(1,-65,0,0), BackgroundTransparency = 1, Text = "0%", TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14}, transRow)
-
-    local dragging = false
-
-    local function updateMenuTransparency(value)
-        local alpha = value * 1
-        if win then
-            win.BackgroundTransparency = alpha
-        end
-        if header then
-            header.BackgroundTransparency = math.clamp(alpha - 0.1, 0, 1)
-        end
-        for _, v in pairs(win:GetDescendants()) do
-            if (v:IsA("TextLabel") or v:IsA("TextButton")) and v ~= toggleBtn then
-                pcall(function() v.TextTransparency = value end)
-            end
-            if v:IsA("GuiObject") and v ~= win and v ~= header then
-            end
-        end
-        percLabel.Text = tostring(math.floor(value * 100)) .. "%"
-        if stroke then
-            stroke.Thickness = 2 * (1 - value*0.6) + 0.5
-        end
-    end
-
-    local function setAlphaFromX(x)
-        if not bar or not knob then return end
-        local barPos = bar.AbsolutePosition.X
-        local barSize = bar.AbsoluteSize.X
-        if barSize == 0 then return end
-        local rel = math.clamp((x - barPos) / barSize, 0, 1)
-        knob.Position = UDim2.new(rel, -7, 0.5, -7)
-        updateMenuTransparency(rel)
-    end
-
-    spawn(function()
-        local tries = 0
-        while (bar.AbsoluteSize.X == 0) and tries < 50 do
-            tries = tries + 1
-            task.wait(0.02)
-        end
-        local initRel = 0
-        local barPos = bar.AbsolutePosition.X
-        local barSize = bar.AbsoluteSize.X
-        if barSize > 0 then
-            knob.Position = UDim2.new(initRel, -7, 0.5, -7)
-            updateMenuTransparency(initRel)
-        end
-    end)
-
-    table.insert(allConns, knob.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-        end
-    end))
-
-    table.insert(allConns, UserInputService.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end))
-
-    table.insert(allConns, UserInputService.InputChanged:Connect(function(i)
-        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-            setAlphaFromX(i.Position.X)
-        end
-    end))
-
-    table.insert(allConns, bar.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            setAlphaFromX(i.Position.X)
-            dragging = true
-        end
-    end))
-end
-
-do
-    local setRow = TabRow(3, "Reset Script")
-    local resetBtn = C("TextButton", {
-        Parent = setRow,
-        Size = UDim2.new(0,140,1,0),
-        Position = UDim2.new(0,130,0,0),
-        BackgroundColor3 = Color3.fromRGB(200,60,60),
-        BorderSizePixel = 0,
-        Text = "Reset All",
-        TextColor3 = Color3.fromRGB(255,255,255),
-        Font = Enum.Font.GothamBold,
-        TextSize = 14
-    }, setRow)
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, resetBtn)
-
-    local resetDebounce = false
-    local function resetAll()
-        if resetDebounce then return end
-        resetDebounce = true
-
-        if getgenv()._RESET_DATA then
-            for _, obj in ipairs(getgenv()._RESET_DATA.uiRefs) do 
-                pcall(function() obj:Destroy() end) 
-            end
-            table.clear(getgenv()._RESET_DATA.uiRefs)
-
-            for _, c in ipairs(getgenv()._RESET_DATA.connections) do 
-                pcall(function() c:Disconnect() end) 
-            end
-            table.clear(getgenv()._RESET_DATA.connections)
-
-            for _, t in ipairs(getgenv()._RESET_DATA.threads) do 
-                pcall(function() coroutine.close(t) end) 
-            end
-            table.clear(getgenv()._RESET_DATA.threads)
-        end
-
-        if _BOUND_ACTIONS then
-            for _, name in ipairs(_BOUND_ACTIONS) do 
-                pcall(function() ContextActionService:UnbindAction(name) end) 
-            end
-            table.clear(_BOUND_ACTIONS)
-        end
-
-        if win then
-            pcall(function()
-                win:Destroy()
-            end)
-            win = nil
-        end
-
-        getgenv().MyBanhMi_Running = false
-        flashBtn(resetBtn, "Reset!", 1)
-
-        task.delay(1, function() resetDebounce = false end)
-    end
-
-    resetBtn.MouseButton1Click:Connect(resetAll)
-
-    local uiHidden = false
-    local function toggleUI()
-        if win then
-            uiHidden = not uiHidden
-            if win:IsA("ScreenGui") then
-                win.Enabled = not uiHidden
-            else
-                win.Visible = not uiHidden
-            end
-        elseif type(CreateMainUI) == "function" then
-            win = CreateMainUI()
-            uiHidden = false
-        end
-    end
-
-    ContextActionService:BindAction("ToggleUI_P", function(_, state)
-        if state == Enum.UserInputState.Begin then
-            toggleUI()
-        end
-        return Enum.ContextActionResult.Sink
-    end, false, Enum.KeyCode.P)
-end
-
-local fontRow = TabRow(3, "Font")
-local fontBtn = C("TextButton", { Parent = fontRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Next Font", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 14 }, fontRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, fontBtn)
-local sizeRow = TabRow(3, "Size")
-local sizeBtn = C("TextButton", { Parent = sizeRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Text +2", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 13 }, sizeRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, sizeBtn)
-local fontIdx, textSize = 1, 18
-
-local function applyFont()
-    title.Font = Fonts[fontIdx]
-end
-fontBtn.MouseButton1Click:Connect(function()
-    fontIdx = fontIdx % #Fonts + 1
-    applyFont()
-end)
-sizeBtn.MouseButton1Click:Connect(function()
-    textSize = math.clamp(textSize + 2, 12, 28)
-    title.TextSize = textSize
-end)
-
-local speedRow = TabRow(1, "Speed")
-local speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,72,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
+local speedRow = TabRow(1, "WalkSpeed Hack")
+speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBtn)
-local speedNum = C("TextLabel", { Parent = speedRow, Size = UDim2.new(0,50,1,0), Position = UDim2.new(0,210,0,0), BackgroundTransparency = 1, Text = tostring(speedValue), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14 }, speedRow)
-local speedBox = C("TextBox", {
-    Parent = speedRow,
-    Size = UDim2.new(0,38,1,0),
-    Position = UDim2.new(0,325,0,0),
-    BackgroundColor3 = Color3.fromRGB(90,90,100),
-    BorderSizePixel = 0,
-    Text = "",
-    PlaceholderText = "Set",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.Gotham,
-    TextSize = 14,
-    ClearTextOnFocus = true
-}, speedRow)
+speedNum = C("TextLabel", { Parent = speedRow, Size = UDim2.new(0,45,1,0), Position = UDim2.new(0,205,0,0), BackgroundTransparency = 1, Text = tostring(state.speedValue), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
+
+local speedBox = C("TextBox", { Parent = speedRow, Size = UDim2.new(0,50,1,0), Position = UDim2.new(0,260,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "", PlaceholderText = "Set", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.Gotham, TextSize = 13, ClearTextOnFocus = true })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBox)
 
 speedBox.FocusLost:Connect(function()
     local val = tonumber(speedBox.Text)
     speedBox.Text = ""
-    if val and val >= 16 and val <= 500 then
-        speedValue = math.floor(val)
-        speedNum.Text = tostring(speedValue)
-        if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
-            lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
-        end
-    else
-        speedBox.PlaceholderText = "Err"
-        delay(1, function() speedBox.PlaceholderText = "Set" end)
+    if val and val >= 16 and val <= Config.MAX_SAFE_WALK_SPEED then
+        state.speedValue = math.floor(val)
+        speedNum.Text = tostring(state.speedValue)
+        if state.speedOn and lp.Character then applyCharacterPhysics(lp.Character) end
     end
 end)
-
-local plusBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,265,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "+", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, plusBtn)
-local minusBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,295,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "-", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, speedRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, minusBtn)
 
 speedBtn.MouseButton1Click:Connect(function()
-    speedOn = not speedOn
-    speedBtn.Text = speedOn and "ON" or "OFF"
-    TweenService:Create(speedBtn, TweenInfo.new(0.2), { BackgroundColor3 = speedOn and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-    if lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
-        lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedOn and speedValue or 16
-    end
-end)
-plusBtn.MouseButton1Click:Connect(function()
-    speedValue = math.clamp(speedValue + 10, 16, 500)
-    speedNum.Text = tostring(speedValue)
-    if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
-        lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
-    end
-end)
-minusBtn.MouseButton1Click:Connect(function()
-    speedValue = math.clamp(speedValue - 10, 16, 500)
-    speedNum.Text = tostring(speedValue)
-    if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
-        lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = speedValue
-    end
+    state.speedOn = not state.speedOn
+    speedBtn.Text = state.speedOn and "ON" or "OFF"
+    TweenService:Create(speedBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.speedOn and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+    if state.speedOn then applyCharacterPhysics(lp.Character) else applyCharacterPhysics(lp.Character) end
 end)
 
-local speedConn = RunService.RenderStepped:Connect(function()
-    if speedOn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+-- ====================================================================
+-- JUMP MODULE V10.7.3 - EVENT-DRIVEN (FINAL)
+-- ====================================================================
+local currentHumanoid = nil
+local isInternalUpdate = false
+local currentJumpMethod = "Power"
+local lastJumpReset = 0
+
+local function detectJumpMethod(humanoid)
+    return humanoid.UseJumpPower and "Power" or "Height"
+end
+
+local function enforceJumpValue(humanoid)
+    if not state.jumpEnabled then return end
+    if not humanoid or not isHumanoidValid(humanoid) then return end
+    
+    local now = time()
+    if now - lastJumpReset < Config.JUMP_THROTTLE then return end
+    lastJumpReset = now
+    
+    local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
+    
+    isInternalUpdate = true
+    local success, err = pcall(function()
+        if currentJumpMethod == "Height" then
+            if humanoid.JumpHeight ~= targetValue then
+                humanoid.JumpHeight = targetValue
+                humanoid.UseJumpPower = false
+            end
+        else
+            if humanoid.JumpPower ~= targetValue then
+                humanoid.JumpPower = targetValue
+                humanoid.UseJumpPower = true
+            end
+        end
+    end)
+    isInternalUpdate = false
+    
+    if not success then
+        warn("[Jump] Enforce failed: " .. tostring(err))
+    end
+end
+
+local function safeJumpHook()
+    if not lp.Character then return false end
+    
+    local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+    local root = lp.Character:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or not root then return false end
+    if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
+    if hum:GetState() == Enum.HumanoidStateType.Jumping then return false end
+    
+    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    
+    if currentJumpMethod == "Height" then
+        pcall(function()
+            local currentVel = root.AssemblyLinearVelocity
+            local jumpVel = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER) / 2.5
+            root.AssemblyLinearVelocity = Vector3.new(currentVel.X, jumpVel, currentVel.Z)
+        end)
+    end
+    
+    return true
+end
+
+local function setupJumpPatch(character)
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    currentHumanoid = humanoid
+    currentJumpMethod = detectJumpMethod(humanoid)
+    
+    local propertyName = (currentJumpMethod == "Height") and "JumpHeight" or "JumpPower"
+    
+    clearConnection("JumpPropertyListener")
+    
+    local propertyConn = humanoid:GetPropertyChangedSignal(propertyName):Connect(function()
+        if isInternalUpdate then return end
+        if not state.jumpEnabled then return end
+        
+        local currentValue = (currentJumpMethod == "Height") and humanoid.JumpHeight or humanoid.JumpPower
+        local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
+        
+        if currentValue ~= targetValue then
+            enforceJumpValue(humanoid)
+        end
+    end)
+    registerConnection("JumpPropertyListener", propertyConn)
+    
+    task.defer(function()
+        if humanoid and isHumanoidValid(humanoid) then
+            enforceJumpValue(humanoid)
+        end
+    end)
+end
+
+local function onCharacterAdded(character)
+    jumpCount = 0
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    if humanoid then
+        setupJumpPatch(character)
+    end
+end
+
+clearConnection("JumpPatchCharacterAdded")
+local jumpPatchConn = lp.CharacterAdded:Connect(onCharacterAdded)
+registerConnection("JumpPatchCharacterAdded", jumpPatchConn)
+
+if lp.Character then
+    task.defer(function()
+        if lp.Character then
+            local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then setupJumpPatch(lp.Character) end
+        end
+    end)
+end
+
+clearConnection("JumpRequest")
+local jumpRequestConn = UIS.JumpRequest:Connect(function()
+    if not lp.Character then return end
+    
+    if state.infJump then
+        safeJumpHook()
+    elseif state.multiJump and jumpCount < maxJumps then
+        safeJumpHook()
+    end
+end)
+registerConnection("JumpRequest", jumpRequestConn)
+
+-- ====================================================================
+-- PHYSICS FUNCTIONS
+-- ====================================================================
+applyCharacterPhysics = function(char)
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or not isHumanoidValid(hum) then return end
+    
+    if hum:GetState() == Enum.HumanoidStateType.Dead then return end
+    
+    hum.WalkSpeed = state.speedOn and state.speedValue or 16
+    hum.UseJumpPower = true
+    
+    local targetJump = state.jumpEnabled and state.jumpHeight or 50
+    hum.JumpPower = math.min(targetJump, Config.MAX_SAFE_JUMP_POWER)
+end
+
+refreshCharacterPartsCache = function(char)
+    table.clear(characterPartsCache)
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            table.insert(characterPartsCache, part)
+            if originalCollisions[part] == nil then originalCollisions[part] = part.CanCollide end
+        end
+    end
+end
+
+local sHeartbeat = RunService.Heartbeat:Connect(function()
+    if state.speedOn and lp.Character then
         local hum = lp.Character:FindFirstChildOfClass("Humanoid")
-        if hum.WalkSpeed ~= speedValue then
-            hum.WalkSpeed = speedValue
+        if hum and isHumanoidValid(hum) and math.abs(hum.WalkSpeed - state.speedValue) > 1 then
+            hum.WalkSpeed = state.speedValue
         end
     end
 end)
-table.insert(allConns, speedConn)
+registerConnection("SpeedHeartbeat", sHeartbeat)
 
-local jumpRow = TabRow(1, "JumpPower")
-local jumpBtn = C("TextButton", { Parent = jumpRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, jumpRow)
+-- ====================================================================
+-- JUMP UI
+-- ====================================================================
+local jumpHeightRow = TabRow(1, "Jump Height")
+jumpBtn = C("TextButton", { Parent = jumpHeightRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, jumpBtn)
+
+local jSliderFrame = C("Frame", { Parent = jumpHeightRow, Size = UDim2.new(1,-215,1,0), Position = UDim2.new(0,210,0,0), BackgroundTransparency = 1 })
+jumpBar = C("Frame", { Parent = jSliderFrame, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, jumpBar)
+jumpKnob = C("Frame", { Parent = jSliderFrame, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.25,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, jumpKnob)
+jumpValue = C("TextLabel", { Parent = jSliderFrame, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,5,0,0), BackgroundTransparency = 1, Text = tostring(state.jumpHeight), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
+
+jumpKnob.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingJump = true end end)
 jumpBtn.MouseButton1Click:Connect(function()
-    local humanoid = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    jumpEnabled = not jumpEnabled
-    jumpBtn.Text = jumpEnabled and "ON" or "OFF"
-    TweenService:Create(jumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = jumpEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(70,70,80) }):Play()
-    humanoid.UseJumpPower = true
-    humanoid.JumpPower = jumpEnabled and 100 or 50
-end)
-
-local infRow = TabRow(1, "InfJump")
-local infBtn = C("TextButton", { Parent = infRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, infRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, infBtn)
-infBtn.MouseButton1Click:Connect(function()
-    infJump = not infJump
-    infBtn.Text = infJump and "ON" or "OFF"
-    TweenService:Create(infBtn, TweenInfo.new(0.2), { BackgroundColor3 = infJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-end)
-
-local jumpConn = UserInputService.JumpRequest:Connect(function()
-    if infJump and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
-        lp.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+    state.jumpEnabled = not state.jumpEnabled
+    jumpBtn.Text = state.jumpEnabled and "ON" or "OFF"
+    TweenService:Create(jumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.jumpEnabled and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+    if currentHumanoid and isHumanoidValid(currentHumanoid) then
+        enforceJumpValue(currentHumanoid)
     end
 end)
-table.insert(allConns, jumpConn)
 
-local noclipRow = TabRow(1, "Noclip")
-local noclipBtn = C("TextButton", { Parent = noclipRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, noclipRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, noclipBtn)
-noclipBtn.MouseButton1Click:Connect(function()
-    noclip = not noclip
-    noclipBtn.Text = noclip and "ON" or "OFF"
-    TweenService:Create(noclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = noclip and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+local jumpModesRow = TabRow(1, "Jump Mechanics")
+infBtn = C("TextButton", { Parent = jumpModesRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "InfJump: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, infBtn)
+
+multiJumpBtn = C("TextButton", { Parent = jumpModesRow, Size = UDim2.new(0,115,1,0), Position = UDim2.new(0,245,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "MultiJump: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, multiJumpBtn)
+
+infBtn.MouseButton1Click:Connect(function()
+    state.infJump = not state.infJump
+    infBtn.Text = state.infJump and "InfJump: ON" or "InfJump: OFF"
+    if state.infJump and state.multiJump then
+        state.multiJump = false
+        multiJumpBtn.Text = "MultiJump: OFF"
+        multiJumpBtn.BackgroundColor3 = Color3.fromRGB(70,70,80)
+    end
+    TweenService:Create(infBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.infJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
-noclipConn = RunService.Stepped:Connect(function()
-    if noclip and lp.Character then
-        for _, part in pairs(lp.Character:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
+multiJumpBtn.MouseButton1Click:Connect(function()
+    state.multiJump = not state.multiJump
+    multiJumpBtn.Text = state.multiJump and "MultiJump: ON" or "MultiJump: OFF"
+    if state.multiJump and state.infJump then
+        state.infJump = false
+        infBtn.Text = "InfJump: OFF"
+        infBtn.BackgroundColor3 = Color3.fromRGB(70,70,80)
+    end
+    TweenService:Create(multiJumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.multiJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+end)
+
+local function hookMultiJumpState(char)
+    clearConnection("MultiJumpState")
+    if not char then return end
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        local conn = hum.StateChanged:Connect(function(_, newState)
+            if newState == Enum.HumanoidStateType.Landed then
+                jumpCount = 0
+            elseif newState == Enum.HumanoidStateType.Jumping then
+                jumpCount = jumpCount + 1
+            end
+        end)
+        registerConnection("MultiJumpState", conn)
+    end
+end
+
+-- ====================================================================
+-- NOCLIP CORE
+-- ====================================================================
+local noclipMasterRow = TabRow(1, "Noclip Core")
+noclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Noclip: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, noclipBtn)
+
+silentNoclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,115,1,0), Position = UDim2.new(0,245,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Silent Mode: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, silentNoclipBtn)
+
+noclipBtn.MouseButton1Click:Connect(function()
+    state.noclip = not state.noclip
+    noclipBtn.Text = state.noclip and "Noclip: ON" or "Noclip: OFF"
+    TweenService:Create(noclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.noclip and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+    if not state.noclip then
+        for part, orig in pairs(originalCollisions) do
+            if part and part.Parent then pcall(function() part.CanCollide = orig end) end
+        end
+        table.clear(originalCollisions)
+        table.clear(characterPartsCache)
+        if lp.Character then refreshCharacterPartsCache(lp.Character) end
+    end
+end)
+
+silentNoclipBtn.MouseButton1Click:Connect(function()
+    state.silentNoclip = not state.silentNoclip
+    silentNoclipBtn.Text = state.silentNoclip and "Silent Mode: ON" or "Silent Mode: OFF"
+    TweenService:Create(silentNoclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.silentNoclip and Color3.fromRGB(210,140,40) or Color3.fromRGB(70,70,80) }):Play()
+end)
+
+local noclipConn = RunService.PreRender:Connect(function()
+    if not state.noclip or #characterPartsCache == 0 then return end
+    
+    if state.silentNoclip then
+        overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+        overlapParams.FilterDescendantsInstances = {lp.Character}
+        
+        for i = 1, #characterPartsCache do
+            local part = characterPartsCache[i]
+            if part and part.Parent and part.Name == "HumanoidRootPart" then
+                local bounds = Workspace:GetPartsInPart(part, overlapParams)
+                if #bounds > 0 then
+                    for j = 1, #characterPartsCache do
+                        if characterPartsCache[j] then characterPartsCache[j].CanCollide = false end
+                    end
+                else
+                    for j = 1, #characterPartsCache do
+                        local p = characterPartsCache[j]
+                        if p then p.CanCollide = originalCollisions[p] or true end
+                    end
+                end
+            end
+        end
+    else
+        for i = 1, #characterPartsCache do
+            local part = characterPartsCache[i]
+            if part and part.Parent and part.CanCollide then
                 part.CanCollide = false
             end
         end
     end
 end)
+registerConnection("NoclipEngine", noclipConn)
 
-if noclipConn then table.insert(allConns, noclipConn) end
-
-local espRow = TabRow(2, "ESP")
-local espBtn = C("TextButton", { Parent = espRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, espRow)
+-- ====================================================================
+-- ESP MODULE
+-- ====================================================================
+local espRowMaster = TabRow(2, "Player ESP Core")
+espBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,75,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, espBtn)
-local espObjects = {}
 
-local function safeDestroy(o)
-    if o and typeof(o) == "Instance" and o.Parent then
-        pcall(function() o:Destroy() end)
+espFilterBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,100,1,0), Position = UDim2.new(0,210,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Filter: All", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, espFilterBtn)
+
+espModeBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,115,1,0), Position = UDim2.new(0,315,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Mode: Both", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, espModeBtn)
+
+local distRow = TabRow(2, "ESP Range")
+local distSlider = C("Frame", { Parent = distRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
+distBar = C("Frame", { Parent = distSlider, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, distBar)
+distKnob = C("Frame", { Parent = distSlider, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.5,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, distKnob)
+distValue = C("TextLabel", { Parent = distSlider, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,10,0,0), BackgroundTransparency = 1, Text = tostring(Config.ESP_DISTANCE), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
+distKnob.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingDist = true end end)
+
+local fillRow = TabRow(2, "ESP Opacity")
+local fillSlider = C("Frame", { Parent = fillRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
+fillBar = C("Frame", { Parent = fillSlider, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, fillBar)
+fillKnob = C("Frame", { Parent = fillSlider, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.5,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, fillKnob)
+fillValue = C("TextLabel", { Parent = fillSlider, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,10,0,0), BackgroundTransparency = 1, Text = tostring(Config.ESP_FILL_TRANSPARENCY), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
+fillKnob.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingFill = true end end)
+
+local lootRow = TabRow(2, "Premium Loot ESP")
+lootEspBtn = C("TextButton", { Parent = lootRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Loot/Chest ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, lootEspBtn)
+
+-- ESP Color
+local function getESPColor(plr)
+    if lp.Team and plr.Team then
+        return (plr.Team == lp.Team) and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
     end
+    return Color3.fromRGB(255,170,0)
 end
 
-local espColor = Color3.fromRGB(255,85,0)
-local function getPlayerESPColor(plr)
-    if plr.Team and plr.Team.TeamColor then
-        return plr.Team.TeamColor.Color
+local function checkESPFilterValid(plr)
+    if state.espFilter == "All" then return true end
+    if state.espFilter == "Enemy Only" then
+        return (lp.Team and plr.Team) and (lp.Team ~= plr.Team) or true
     end
-    return espColor
-end
-
-local function createESPForCharacter(plr, char)
-    if plr == lp then return end
-    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Head") then return end
-    if espObjects[plr] then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local color = getPlayerESPColor(plr)
-    local box = Instance.new("BoxHandleAdornment")
-    box.Size = Vector3.new(4,6,2)
-    box.Color3 = color
-    box.Transparency = 0.6
-    box.ZIndex = 10
-    box.AlwaysOnTop = true
-    box.Adornee = hrp
-    box.Parent = char
-
-    local tag = Instance.new("BillboardGui")
-    tag.Adornee = char:FindFirstChild("Head")
-    tag.Size = UDim2.new(0,100,0,16)
-    tag.StudsOffset = Vector3.new(0, 2, 0)
-    tag.AlwaysOnTop = true
-    tag.Parent = char
-
-    local label = Instance.new("TextLabel")
-    label.BackgroundTransparency = 1
-    label.Size = UDim2.new(1,0,1,0)
-    label.Text = plr.Name
-    label.TextColor3 = color
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 14
-    label.Parent = tag
-
-    espObjects[plr] = { box = box, tag = tag }
-end
-
-local function removeESPForPlayer(plr)
-    if espObjects[plr] then
-        safeDestroy(espObjects[plr].box)
-        safeDestroy(espObjects[plr].tag)
-        espObjects[plr] = nil
+    if state.espFilter == "Team Only" then
+        return (lp.Team and plr.Team) and (lp.Team == plr.Team) or false
     end
+    return true
 end
 
-local function updateESPAll()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= lp then
-            if esp then
-                local char = plr.Character
-                if char then
-                    createESPForCharacter(plr, char)
-                end
-            else
-                removeESPForPlayer(plr)
+-- ESP Creation
+local function createESPForPlayer(plr)
+    if plr == lp or espData[plr] then return end
+    if not checkESPFilterValid(plr) then return end
+
+    local data = { connections = {}, retryConn = nil, lastDist = nil }
+    espData[plr] = data
+
+    local function setupCharEsp(char)
+        if not state.esp or not char then return end
+        if data.retryConn then pcall(function() data.retryConn:Disconnect() end); data.retryConn = nil end
+
+        local function trySetup()
+            if not char.Parent then return false end
+            local root = getRoot(char)
+            if not root then return false end
+
+            if (state.espMode == "Highlight" or state.espMode == "Both") and not data.highlight then
+                data.highlight = C("Highlight", {
+                    OutlineColor = Color3.new(1,1,1),
+                    FillColor = getESPColor(plr),
+                    FillTransparency = Config.ESP_FILL_TRANSPARENCY,
+                    Adornee = char
+                }, screen)
             end
+            if (state.espMode == "Box" or state.espMode == "Both") and not data.box then
+                data.box = C("SelectionBox", {
+                    Color3 = getESPColor(plr),
+                    LineThickness = 0.04,
+                    Transparency = 0.4,
+                    Adornee = char
+                }, screen)
+            end
+            if not data.billboard then
+                data.billboard = C("BillboardGui", {
+                    Size = UDim2.fromOffset(140,30),
+                    StudsOffset = Vector3.new(0,3.5,0),
+                    AlwaysOnTop = true,
+                    Adornee = char:FindFirstChild("Head") or root
+                }, screen)
+                data.label = C("TextLabel", {
+                    Parent = data.billboard,
+                    Size = UDim2.fromScale(1,1),
+                    BackgroundTransparency = 1,
+                    Font = Enum.Font.GothamBold,
+                    TextSize = 11,
+                    TextStrokeTransparency = 0,
+                    TextStrokeColor3 = Color3.new(0,0,0),
+                    TextColor3 = getESPColor(plr),
+                    Text = plr.Name
+                }, data.billboard)
+            end
+            return true
         end
-    end
-end
-local function onPlayerCharacterAdded(plr)
-    return function(char)
-        removeESPForPlayer(plr)
 
-        if esp then
-            spawn(function()
-                local hrp = char:WaitForChild("HumanoidRootPart", 5)
-                local head = char:FindFirstChild("Head") or char:WaitForChild("Head", 5)
-                if hrp and head then
-                    createESPForCharacter(plr, char)
+        if not trySetup() then
+            local retries = 0
+            data.retryConn = RunService.Heartbeat:Connect(function()
+                retries = retries + 1
+                if trySetup() or retries >= 15 then
+                    if data.retryConn then
+                        data.retryConn:Disconnect()
+                        data.retryConn = nil
+                    end
                 end
             end)
+            table.insert(data.connections, data.retryConn)
+        end
+    end
+
+    if plr.Character then task.spawn(setupCharEsp, plr.Character) end
+    table.insert(data.connections, plr.CharacterAdded:Connect(function(c) task.spawn(setupCharEsp, c) end))
+end
+
+local function removeESP(plr, clean)
+    local d = espData[plr]
+    if d then
+        if d.highlight then pcall(function() d.highlight:Destroy() end) end
+        if d.box then pcall(function() d.box:Destroy() end) end
+        if d.billboard then pcall(function() d.billboard:Destroy() end) end
+        if d.retryConn then pcall(function() d.retryConn:Disconnect() end) end
+        if clean and d.connections then
+            for _, c in ipairs(d.connections) do pcall(function() c:Disconnect() end) end
+        end
+        espData[plr] = nil
+    end
+end
+
+-- ESP Update
+local updateAccum = 0
+
+local function requestEspUpdate(dt)
+    updateAccum = updateAccum + dt
+    if updateAccum < Config.ESP_UPDATE_INTERVAL then return end
+    updateAccum = updateAccum - Config.ESP_UPDATE_INTERVAL
+
+    if not state.esp then return end
+    local myRoot = getRoot(lp.Character)
+    if not myRoot then return end
+    local myPos = myRoot.Position
+
+    local enableHighlight = (state.espMode == "Highlight" or state.espMode == "Both")
+    local enableBox = (state.espMode == "Box" or state.espMode == "Both")
+
+    for plr, d in pairs(espData) do
+        if not checkESPFilterValid(plr) then
+            removeESP(plr, false)
+        else
+            local tRoot = getRoot(plr.Character)
+            if not tRoot then
+                if d.billboard then d.billboard.Enabled = false end
+                if d.highlight then d.highlight.Enabled = false end
+                if d.box then d.box.Visible = false end
+                d.lastDist = nil
+            else
+                local offset = tRoot.Position - myPos
+                local distSq = offset:Dot(offset)
+                local valid = distSq <= ESP_DIST_SQ
+
+                if d.billboard then d.billboard.Enabled = valid end
+                if d.highlight then d.highlight.Enabled = valid and enableHighlight end
+                if d.box then d.box.Visible = valid and enableBox end
+
+                if valid and d.label then
+                    local roundedDist = math.floor(math.sqrt(distSq))
+
+                    if d.lastDist ~= roundedDist then
+                        d.label.Text = plr.Name .. " [" .. roundedDist .. "m]"
+                        d.lastDist = roundedDist
+                    end
+
+                    local color = getESPColor(plr)
+                    if d.label.TextColor3 ~= color then d.label.TextColor3 = color end
+
+                    if d.highlight and (d.highlight.FillColor ~= color) then
+                        d.highlight.FillColor = color
+                        d.highlight.OutlineColor = color
+                    end
+                    if d.box and (d.box.Color3 ~= color) then
+                        d.box.Color3 = color
+                    end
+                else
+                    d.lastDist = nil
+                end
+            end
         end
     end
 end
-
-for _, plr in ipairs(Players:GetPlayers()) do
-    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
-    table.insert(allConns, conn)
-    if plr.Character and esp then
-        spawn(function()
-            local hrp = plr.Character:WaitForChild("HumanoidRootPart", 5)
-            if hrp then createESPForCharacter(plr, plr.Character) end
-        end)
-    end
-end
-
-local playerAddedConn = Players.PlayerAdded:Connect(function(plr)
-    local conn = plr.CharacterAdded:Connect(onPlayerCharacterAdded(plr))
-    table.insert(allConns, conn)
-end)
-table.insert(allConns, playerAddedConn)
-
-local playerRemovingConn = Players.PlayerRemoving:Connect(function(plr)
-    removeESPForPlayer(plr)
-end)
-table.insert(allConns, playerRemovingConn)
 
 espBtn.MouseButton1Click:Connect(function()
-    esp = not esp
-    espBtn.Text = esp and "ON" or "OFF"
-    TweenService:Create(espBtn, TweenInfo.new(0.2), { BackgroundColor3 = esp and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80) }):Play()
-    updateESPAll()
-end)
-
-
-local xrayRow = TabRow(2, "Xray")
-local xrayBtn = C("TextButton", { Parent = xrayRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, xrayRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, xrayBtn)
-xrayBtn.MouseButton1Click:Connect(function()
-    xray = not xray
-    xrayBtn.Text = xray and "ON" or "OFF"
-    TweenService:Create(xrayBtn, TweenInfo.new(0.2), { BackgroundColor3 = xray and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80) }):Play()
-
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and (not obj:IsDescendantOf(lp.Character)) then
-            pcall(function() obj.LocalTransparencyModifier = xray and 0.7 or 0 end)
-        end
-    end
-end)
-
-local tpRow = TabRow(2, "Teleport")
-local tpBox = C("TextBox", {
-    Parent = tpRow,
-    Size = UDim2.new(0,120,1,0),
-    Position = UDim2.new(0,130,0,0),
-    BackgroundColor3 = Color3.fromRGB(70,70,80),
-    BorderSizePixel = 0,
-    Text = "",
-    PlaceholderText = "PlayerName",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.Gotham,
-    TextSize = 14,
-    ClearTextOnFocus = true
-}, tpRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, tpBox)
-
-local tpBtn = C("TextButton", {
-    Parent = tpRow,
-    Size = UDim2.new(0,80,1,0),
-    Position = UDim2.new(0,260,0,0),
-    BackgroundColor3 = Color3.fromRGB(90,90,100),
-    BorderSizePixel = 0,
-    Text = "TP",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamBold,
-    TextSize = 14
-}, tpRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, tpBtn)
-
-local function findPlayerByPartial(namePart)
-    if not namePart or namePart == "" then return nil end
-    namePart = string.lower(namePart)
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if string.find(string.lower(plr.Name), namePart, 1, true) then
-            return plr
-        end
-    end
-    return nil
-end
-
-tpBtn.MouseButton1Click:Connect(function()
-    local nameInput = tostring(tpBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
-    tpBox.Text = ""
-    local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-    local targetPlayer = findPlayerByPartial(nameInput)
-    if hrp and targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        hrp.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0,3,0)
-    end
-end)
-
-local flyRow = TabRow(1, "Fly")
-local flyBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,120,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
-local flySpeedLabel = C("TextLabel", { Parent = flyRow, Size = UDim2.new(0,60,1,0), Position = UDim2.new(0,260,0,0), BackgroundTransparency = 1, Text = "Speed: "..flySpeed, TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 14 }, flyRow)
-local flyPlusBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,320,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "+", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, flyPlusBtn)
-local flyMinusBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,24,1,0), Position = UDim2.new(0,350,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "-", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 14 }, flyRow)
-C("UICorner", { CornerRadius = UDim.new(0,8) }, flyMinusBtn)
-
-flyPlusBtn.MouseButton1Click:Connect(function()
-    flySpeed = math.clamp(flySpeed + 10, 20, 200)
-    flySpeedLabel.Text = "Speed: "..flySpeed
-end)
-flyMinusBtn.MouseButton1Click:Connect(function()
-    flySpeed = math.clamp(flySpeed - 10, 20, 200)
-    flySpeedLabel.Text = "Speed: "..flySpeed
-end)
-
-flyBtn.MouseButton1Click:Connect(function()
-    flying = not flying
-    flyBtn.Text = flying and "ON" or "OFF"
-    TweenService:Create(flyBtn, TweenInfo.new(0.2), { BackgroundColor3 = flying and Color3.fromRGB(130,130,220) or Color3.fromRGB(70,70,80) }):Play()
-    if flying then
-        local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-        local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
-        if hrp then
-            if not bv then
-                bv = Instance.new("BodyVelocity")
-                bv.MaxForce = Vector3.new(1e5,1e5,1e5)
-                bv.Velocity = Vector3.new(0,0,0)
-                bv.Parent = hrp
-            end
-            if hum then pcall(function() hum.PlatformStand = true end) end
-        end
+    state.esp = not state.esp
+    espBtn.Text = state.esp and "ESP: ON" or "ESP: OFF"
+    TweenService:Create(espBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.esp and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+    if state.esp then
+        for _, p in ipairs(Players:GetPlayers()) do createESPForPlayer(p) end
     else
-        if bv then
-            pcall(function() bv:Destroy() end)
-            bv = nil
-        end
-        local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
-        if hum then pcall(function() hum.PlatformStand = false end) end
+        for _, p in ipairs(Players:GetPlayers()) do removeESP(p, false) end
     end
 end)
 
-flyConn = RunService.RenderStepped:Connect(function()
-    if flying and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-        local hrp = lp.Character:FindFirstChild("HumanoidRootPart")
-        if not bv or bv.Parent ~= hrp then
-            if bv then pcall(function() bv:Destroy() end) end
-            bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(1e5,1e5,1e5)
-            bv.Velocity = Vector3.new(0,0,0)
-            bv.Parent = hrp
-        end
-
-        local cam = workspace.CurrentCamera
-        local moveDir = Vector3.new(0,0,0)
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            moveDir = moveDir + cam.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            moveDir = moveDir - cam.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            moveDir = moveDir - cam.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            moveDir = moveDir + cam.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            moveDir = moveDir + Vector3.new(0,1,0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-            moveDir = moveDir - Vector3.new(0,1,0)
-        end
-
-        if moveDir.Magnitude > 0 then
-            bv.Velocity = moveDir.Unit * flySpeed
-        else
-            bv.Velocity = Vector3.new(0,0,0)
+espFilterBtn.MouseButton1Click:Connect(function()
+    if state.espFilter == "All" then state.espFilter = "Enemy Only"
+    elseif state.espFilter == "Enemy Only" then state.espFilter = "Team Only"
+    else state.espFilter = "All" end
+    espFilterBtn.Text = "Filter: " .. state.espFilter
+    if state.esp then
+        for _, p in ipairs(Players:GetPlayers()) do
+            removeESP(p, false)
+            createESPForPlayer(p)
         end
     end
 end)
-if flyConn then table.insert(allConns, flyConn) end
 
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local workspace = workspace
+espModeBtn.MouseButton1Click:Connect(function()
+    if state.espMode == "Both" then state.espMode = "Highlight"
+    elseif state.espMode == "Highlight" then state.espMode = "Box"
+    else state.espMode = "Both" end
+    espModeBtn.Text = "Mode: " .. state.espMode
+end)
 
-local lp = Players.LocalPlayer
+local espRenderConn = RunService.RenderStepped:Connect(function(dt)
+    safePCall(function() requestEspUpdate(dt) end, "ESP update")
+end)
+registerConnection("ESPRenderLoop", espRenderConn)
 
-local function safeC(class, props, parent)
-    if type(C) == "function" then
-        local ok, res = pcall(function() return C(class, props, parent) end)
-        if ok and res then return res end
-    end
-    local inst = Instance.new(class)
-    if props then
-        for k, v in pairs(props) do
-            if k ~= "Parent" then
-                pcall(function() inst[k] = v end)
-            end
+-- ====================================================================
+-- LOOT ESP V4 - REGISTRY ONLY (OPTIMIZED)
+-- ====================================================================
+local function isLootInstance(instance)
+    if not instance:IsA("BasePart") then return false end
+    local nameLower = string.lower(instance.Name)
+    for _, keyword in ipairs(Config.LOOT_KEYWORDS) do
+        if string.find(nameLower, keyword) then
+            return true
         end
     end
-    if parent then inst.Parent = parent end
-    return inst
+    return false
 end
 
-local function safeTabRow(tabIndex, label)
-    if type(TabRow) == "function" then
-        return TabRow(tabIndex, label)
-    end
-    local pg = lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui")
-    local screen = pg:FindFirstChild("PhoBo_Misc_Fallback") or Instance.new("ScreenGui", pg)
-    screen.Name = "PhoBo_Misc_Fallback"
-    screen.ResetOnSpawn = false
-    local f = Instance.new("Frame", screen)
-    f.Name = label.."Row"
-    f.Size = UDim2.new(0,420,0,34)
-    f.Position = UDim2.new(0,10,0,10 + (#screen:GetChildren()*38))
-    f.BackgroundTransparency = 0.45
-    return f
-end
-
-local function _safeC(class, props, parent)
-    return safeC(class, props, parent)
-end
-local function _safeTabRow(tabIndex, label)
-    return safeTabRow(tabIndex, label)
-end
-
-local bringRow = _safeTabRow(2, "Bring Part")
-local bringBox = _safeC("TextBox", {
-    Parent = bringRow,
-    Size = UDim2.new(0, 150, 1, 0),
-    Position = UDim2.new(0, 130, 0, 0),
-    BackgroundColor3 = Color3.fromRGB(70,70,80),
-    BorderSizePixel = 0,
-    Text = "",
-    PlaceholderText = "PartName",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.Gotham,
-    TextSize = 12,
-    ClearTextOnFocus = true
-}, bringRow)
-_safeC("UICorner", { CornerRadius = UDim.new(0,8) }, bringBox)
-
-local goBtn = _safeC("TextButton", {
-    Parent = bringRow,
-    Size = UDim2.new(0,60,1,0),
-    Position = UDim2.new(-0.15,310,0.68,20),
-    BackgroundColor3 = Color3.fromRGB(90,90,100),
-    BorderSizePixel = 0,
-    Text = "Go",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamBold,
-    TextSize = 14,
-    TextYAlignment = Enum.TextYAlignment.Center
-}, bringRow)
-_safeC("UICorner", { CornerRadius = UDim.new(0,8) }, goBtn)
-
-local btnFrame = _safeC("Frame", {
-    Parent = bringRow,
-    Size = UDim2.new(0,90,1,0),
-    Position = UDim2.new(1, -90, 0, 0),
-    BackgroundTransparency = 1
-}, bringRow)
-
-_safeC("UIListLayout", {
-    Parent = btnFrame,
-    FillDirection = Enum.FillDirection.Vertical,
-    SortOrder = Enum.SortOrder.LayoutOrder,
-    Padding = UDim.new(0,6)
-}, btnFrame)
-
-local function _makeRightBtn(text, textSize)
-    local b = _safeC("TextButton", {
-        Parent = btnFrame,
-        Size = UDim2.new(1,0,1/3,-2),
-        BackgroundColor3 = Color3.fromRGB(90,90,100),
-        BorderSizePixel = 0,
-        Text = text,
-        TextColor3 = Color3.fromRGB(235,235,240),
+local function createLootBillboard(part)
+    local bb = C("BillboardGui", {
+        Size = UDim2.fromOffset(110, 25),
+        StudsOffset = Vector3.new(0, 2, 0),
+        AlwaysOnTop = true,
+        Adornee = part
+    }, screen)
+    local label = C("TextLabel", {
+        Parent = bb,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
-        TextSize = textSize or 13
-    }, btnFrame)
-    _safeC("UICorner", { CornerRadius = UDim.new(0,8) }, b)
-    return b
+        TextSize = 10,
+        TextColor3 = Color3.fromRGB(0, 230, 255),
+        TextStrokeTransparency = 0
+    })
+    return { billboard = bb, label = label, lastDist = nil }
 end
 
-local bringBtn = _makeRightBtn("Bring", 14)
-local bringAllBtn = _makeRightBtn("Bring All", 13)
-local bringPlayerBtn = _makeRightBtn("Bring Player", 13)
+local function addLootToRegistry(part)
+    if lootRegistry[part] then return end
+    lootRegistry[part] = createLootBillboard(part)
+end
 
-local function findAllByName(name)
-    local lower = (name or ""):lower()
-    local found = {}
-    if lower == "" then return found end
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name:lower() == lower then
-            table.insert(found, obj)
+local function removeLootFromRegistry(part)
+    local cache = lootRegistry[part]
+    if cache then
+        if cache.billboard then pcall(function() cache.billboard:Destroy() end) end
+        lootRegistry[part] = nil
+    end
+end
+
+local function onLootTagAdded(part)
+    if part and part:IsA("BasePart") then
+        addLootToRegistry(part)
+    end
+end
+
+local function onLootTagRemoved(part)
+    if part then
+        removeLootFromRegistry(part)
+    end
+end
+
+local function onNewInstance(instance)
+    if not instance:IsA("BasePart") then return end
+    if isLootInstance(instance) and not CollectionService:HasTag(instance, LOOT_TAG) then
+        CollectionService:AddTag(instance, LOOT_TAG)
+    end
+end
+
+local function scanExistingLoot()
+    local allParts = Workspace:GetDescendants()
+    local total = #allParts
+    for i = 1, total do
+        if isLootInstance(allParts[i]) then
+            CollectionService:AddTag(allParts[i], LOOT_TAG)
+        end
+        if i % 1000 == 0 then task.wait() end
+    end
+end
+
+CollectionService:GetInstanceAddedSignal(LOOT_TAG):Connect(onLootTagAdded)
+CollectionService:GetInstanceRemovedSignal(LOOT_TAG):Connect(onLootTagRemoved)
+
+local descendantAddedConn = Workspace.DescendantAdded:Connect(onNewInstance)
+registerConnection("LootDescendantAdded", descendantAddedConn)
+
+task.spawn(scanExistingLoot)
+
+local function updateLootESP()
+    if not state.lootEspEnabled or not lp.Character then return end
+    
+    local root = lp.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local rootPos = root.Position
+    local processedCount = 0
+    local pendingRemoval = {}
+    
+    for part, cache in pairs(lootRegistry) do
+        if not part or not part.Parent then
+            table.insert(pendingRemoval, part)
         end
     end
-    return found
-end
-
-local function findFirstByName(name)
-    for _, obj in ipairs(findAllByName(name)) do
-        return obj
+    
+    for _, part in ipairs(pendingRemoval) do
+        removeLootFromRegistry(part)
     end
-    return nil
-end
-
-local function moveTo(obj, destCFrame)
-    if not obj or not obj.Parent then return false, "Object invalid" end
-    if lp.Character and obj:IsDescendantOf(lp.Character) then
-        return false, "Target belongs to you"
-    end
-
-    if obj:IsA("BasePart") then
-        local prevAnchored = false
-        pcall(function() prevAnchored = obj.Anchored end)
-        pcall(function() obj.Anchored = true end)
-        local ok, err = pcall(function() obj.CFrame = destCFrame end)
-        pcall(function() obj.Anchored = prevAnchored end)
-        if not ok then return false, tostring(err) end
-        return true
-    elseif obj:IsA("Model") then
-        if obj.PrimaryPart then
-            local ok, err = pcall(function() obj:SetPrimaryPartCFrame(destCFrame) end)
-            if not ok then return false, tostring(err) end
-            return true
+    
+    for part, cache in pairs(lootRegistry) do
+        if processedCount >= Config.LOOT_MAX_RENDER then break end
+        
+        local offset = part.Position - rootPos
+        local distSq = offset:Dot(offset)
+        
+        if distSq <= LOOT_RADIUS_SQ then
+            local dist = math.floor(math.sqrt(distSq))
+            
+            if cache.lastDist ~= dist then
+                cache.label.Text = "📦 " .. part.Name .. " [" .. dist .. "m]"
+                cache.lastDist = dist
+            end
+            
+            cache.billboard.Enabled = true
+            processedCount = processedCount + 1
         else
-            local parts = {}
-            for _, p in ipairs(obj:GetDescendants()) do
-                if p:IsA("BasePart") then table.insert(parts, p) end
-            end
-            if #parts == 0 then return false, "Model has no BaseParts" end
-            local center = Vector3.new(0,0,0)
-            for _, p in ipairs(parts) do center = center + p.Position end
-            center = center / #parts
-            local delta = destCFrame.Position - center
-
-            local prevAnchored = {}
-            for _, p in ipairs(parts) do
-                prevAnchored[p] = p.Anchored
-                p.Anchored = true
-            end
-            for _, p in ipairs(parts) do
-                p.CFrame = p.CFrame + delta
-            end
-            for _, p in ipairs(parts) do
-                p.Anchored = prevAnchored[p]
-            end
-            return true
+            cache.billboard.Enabled = false
         end
-    else
-        return false, "Unsupported instance type"
     end
 end
 
-local function flashBtn(btn, txt, dt)
-    if not btn then return end
-    local old = btn.Text
-    btn.Text = txt
-    delay(dt or 0.9, function() if btn and btn.Parent then btn.Text = old end end)
+clearLootEsp = function()
+    for part, cache in pairs(lootRegistry) do
+        if cache.billboard then pcall(function() cache.billboard:Destroy() end) end
+    end
+    table.clear(lootRegistry)
+end
+
+lootEspBtn.MouseButton1Click:Connect(function()
+    state.lootEspEnabled = not state.lootEspEnabled
+    lootEspBtn.Text = state.lootEspEnabled and "Loot ESP: ON" or "Loot ESP: OFF"
+    TweenService:Create(lootEspBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.lootEspEnabled and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+    if not state.lootEspEnabled then clearLootEsp() end
+end)
+
+task.spawn(function()
+    while state.scriptEnabled and state.lootPipelineActive do
+        task.wait(0.3)
+        if state.lootEspEnabled then safePCall(updateLootESP, "Loot ESP") end
+    end
+end)
+
+local pAddedConn = Players.PlayerAdded:Connect(createESPForPlayer)
+local pRemovingConn = Players.PlayerRemoving:Connect(function(p) removeESP(p, true) end)
+registerConnection("PlayerAddedESP", pAddedConn)
+registerConnection("PlayerRemovingESP", pRemovingConn)
+
+-- ====================================================================
+-- FLY SYSTEM
+-- ====================================================================
+local flyRow = TabRow(3, "Premium Flight Engine")
+flyBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "FLY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
+
+flyMethodBtn = C("TextButton", { Parent = flyRow, Size = UDim2.new(0,140,1,0), Position = UDim2.new(0,210,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Engine: BodyVelocity", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, flyMethodBtn)
+
+local flySpeedRow = TabRow(3, "Flight Speed")
+local flySpeedSlider = C("Frame", { Parent = flySpeedRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
+flySpeedBar = C("Frame", { Parent = flySpeedSlider, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, flySpeedBar)
+flySpeedKnob = C("Frame", { Parent = flySpeedSlider, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.15,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, flySpeedKnob)
+flySpeedValue = C("TextLabel", { Parent = flySpeedSlider, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,10,0,0), BackgroundTransparency = 1, Text = tostring(state.flySpeed), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
+flySpeedKnob.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingFlySpeed = true end end)
+
+local function resetFlyState()
+    if flyBodyVelocity then flyBodyVelocity:Destroy(); flyBodyVelocity = nil end
+    if flyBodyGyro then flyBodyGyro:Destroy(); flyBodyGyro = nil end
+    clearConnection("FlightEngineLoop")
+end
+
+local function updateFlyState()
+    resetFlyState()
+    if not state.flying or not lp.Character then return end
+    local root = lp.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if state.flyMethod == "BodyVelocity" then
+        flyBodyVelocity = C("BodyVelocity", { MaxForce = Vector3.new(1,1,1) * 9e9, Velocity = Vector3.new(0,0,0) }, root)
+        flyBodyGyro = C("BodyGyro", { MaxTorque = Vector3.new(1,1,1) * 9e9, CFrame = root.CFrame }, root)
+
+        local fConn = RunService.PreRender:Connect(function()
+            if not state.flying or not lp.Character or not root.Parent then
+                resetFlyState()
+                return
+            end
+            local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+            local camCF = Workspace.CurrentCamera.CFrame
+            local dir = Vector3.new(0,0,0)
+
+            if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
+
+            if dir.Magnitude > 0 then dir = dir.Unit end
+            flyBodyVelocity.Velocity = dir * state.flySpeed
+            flyBodyGyro.CFrame = camCF
+            if hum then hum.PlatformStand = true end
+        end)
+        registerConnection("FlightEngineLoop", fConn)
+    else
+        local fConn = RunService.PreRender:Connect(function()
+            if not state.flying or not lp.Character or not root.Parent then
+                resetFlyState()
+                return
+            end
+            local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+            local camCF = Workspace.CurrentCamera.CFrame
+            local dir = Vector3.new(0,0,0)
+
+            if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
+
+            if dir.Magnitude > 0 then dir = dir.Unit end
+            root.CFrame = root.CFrame + (dir * (state.flySpeed * 0.016))
+            root.Velocity = Vector3.new(0,0,0)
+            if hum then hum.PlatformStand = true end
+        end)
+        registerConnection("FlightEngineLoop", fConn)
+    end
+end
+
+local function toggleFlyState()
+    state.flying = not state.flying
+    flyBtn.Text = state.flying and "FLY: ON" or "FLY: OFF"
+    TweenService:Create(flyBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.flying and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+    if state.flying then
+        updateFlyState()
+    else
+        resetFlyState()
+        if lp.Character then
+            local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
+            local root = lp.Character:FindFirstChild("HumanoidRootPart")
+            if root then root.Velocity = Vector3.new(0,0,0) end
+        end
+    end
+end
+
+flyBtn.MouseButton1Click:Connect(toggleFlyState)
+flyMethodBtn.MouseButton1Click:Connect(function()
+    state.flyMethod = (state.flyMethod == "BodyVelocity") and "CFrame Engine" or "BodyVelocity"
+    flyMethodBtn.Text = "Engine: " .. state.flyMethod
+    if state.flying then updateFlyState() end
+end)
+
+CAS:BindAction("FlyActionKey", function(_, actionState)
+    if UIS:GetFocusedTextBox() then return end
+    if actionState == Enum.UserInputState.Begin then flyBtn:Click() end
+end, false, Enum.KeyCode.B)
+
+-- ====================================================================
+-- XRAY SYSTEM
+-- ====================================================================
+local xrayRow = TabRow(3, "Environment XRay")
+xrayBtnUI = C("TextButton", { Parent = xrayRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "XRAY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, xrayBtnUI)
+
+local xSliderFrame = C("Frame", { Parent = xrayRow, Size = UDim2.new(1,-215,1,0), Position = UDim2.new(0,210,0,0), BackgroundTransparency = 1 })
+xrayBar = C("Frame", { Parent = xSliderFrame, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, xrayBar)
+xrayKnob = C("Frame", { Parent = xSliderFrame, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.5,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
+C("UICorner", { CornerRadius = UDim.new(1,0) }, xrayKnob)
+xrayValue = C("TextLabel", { Parent = xSliderFrame, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,5,0,0), BackgroundTransparency = 1, Text = string.format("%.2f", state.xrayIntensity), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
+xrayKnob.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingXray = true end end)
+
+local function cleanXray()
+    clearConnection("XrayRuntime")
+    for _, p in ipairs(CollectionService:GetTagged(XRAY_TAG)) do
+        if p and p.Parent then
+            p.Transparency = xrayOriginalParts[p] or 0
+        end
+        CollectionService:RemoveTag(p, XRAY_TAG)
+    end
+    table.clear(xrayOriginalParts)
+end
+
+local function applyXrayToInstance(v)
+    if v:IsA("BasePart") and not isCharacterPart(v) and v.Transparency ~= 1 then
+        if not CollectionService:HasTag(v, XRAY_TAG) then
+            xrayOriginalParts[v] = v.Transparency
+            CollectionService:AddTag(v, XRAY_TAG)
+            v.Transparency = state.xrayIntensity
+        end
+    end
+end
+
+local function toggleXrayState()
+    state.xray = not state.xray
+    xrayBtnUI.Text = state.xray and "XRAY: ON" or "XRAY: OFF"
+    TweenService:Create(xrayBtnUI, TweenInfo.new(0.2), { BackgroundColor3 = state.xray and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+    if state.xray then
+        local allItems = Workspace:GetDescendants()
+        task.spawn(function()
+            for i = 1, #allItems do
+                if not state.xray then break end
+                applyXrayToInstance(allItems[i])
+                if i % Config.XRAY_BATCH_SIZE == 0 then task.wait() end
+            end
+        end)
+        local xrConn = Workspace.DescendantAdded:Connect(applyXrayToInstance)
+        registerConnection("XrayRuntime", xrConn)
+    else
+        cleanXray()
+    end
+end
+xrayBtnUI.MouseButton1Click:Connect(toggleXrayState)
+
+-- ====================================================================
+-- BRING PART & OBJECT SCANNER
+-- ====================================================================
+local scannerTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
+C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Premium Object Scanner & Bring Tool ---", TextColor3 = Color3.fromRGB(150,130,220), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, scannerTitleRow)
+
+local selectRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,72), BackgroundTransparency = 1 })
+
+selectPartBtn = C("TextButton", { Parent = selectRow, Size = UDim2.new(0,140,0,32), Position = UDim2.new(0,0,0,0), BackgroundColor3 = Color3.fromRGB(90,63,150), BorderSizePixel = 0, Text = "🎯 Click & Select Part", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, selectPartBtn)
+
+partNameBox = C("TextBox", { Parent = selectRow, Size = UDim2.new(0,175,0,32), Position = UDim2.new(0,0,0,38), BackgroundColor3 = Color3.fromRGB(55,55,60), BorderSizePixel = 0, Text = "", PlaceholderText = "Enter part name...", TextColor3 = Color3.fromRGB(240,240,245), PlaceholderColor3 = Color3.fromRGB(130,130,140), Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = true })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, partNameBox)
+C("UIPadding", { PaddingLeft = UDim.new(0,8) }, partNameBox)
+
+searchByNameBtn = C("TextButton", { Parent = selectRow, Size = UDim2.new(0,75,0,32), Position = UDim2.new(0,182,0,38), BackgroundColor3 = Color3.fromRGB(70,120,180), BorderSizePixel = 0, Text = "🔍 Find", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, searchByNameBtn)
+
+selectedPartName = C("TextLabel", { Parent = selectRow, Size = UDim2.new(1,-265,0,32), Position = UDim2.new(0,265,0,38), BackgroundColor3 = Color3.fromRGB(45,45,50), Text = "Selected: None", TextColor3 = Color3.fromRGB(180,180,190), Font = Enum.Font.GothamSemibold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left })
+C("UICorner", { CornerRadius = UDim.new(0,6) }, selectedPartName)
+C("UIPadding", { PaddingLeft = UDim.new(0,10) }, selectedPartName)
+
+local infoRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,45), BackgroundTransparency = 1 })
+partInfoLabel = C("TextLabel", { Parent = infoRow, Size = UDim2.new(1,0,1,0), BackgroundColor3 = Color3.fromRGB(25,25,30), Text = "Owner: N/A\nDistance: N/A | Status: Ready", TextColor3 = Color3.fromRGB(160,160,170), Font = Enum.Font.Gotham, TextSize = 11, TextYAlignment = Enum.TextYAlignment.Center })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, partInfoLabel)
+C("UIPadding", { PaddingLeft = UDim.new(0,10) }, partInfoLabel)
+
+local bringActionsRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,36), BackgroundTransparency = 1 })
+C("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder }, bringActionsRow)
+
+bringBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 1, Size = UDim2.new(0,100,1,0), BackgroundColor3 = Color3.fromRGB(180,70,70), Text = "🧲 Bring Part", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, bringBtn)
+
+tpToPartBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 2, Size = UDim2.new(0,100,1,0), BackgroundColor3 = Color3.fromRGB(70,120,180), Text = "⚡ Teleport To", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, tpToPartBtn)
+
+bringAllBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 3, Size = UDim2.new(0,110,1,0), BackgroundColor3 = Color3.fromRGB(140,60,160), Text = "🌀 Bring All Same", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, bringAllBtn)
+
+reselectLastBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 4, Size = UDim2.new(0,100,1,0), BackgroundColor3 = Color3.fromRGB(60,60,65), Text = "🔄 Undo Select", TextColor3 = Color3.fromRGB(200,200,205), Font = Enum.Font.GothamMedium, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, reselectLastBtn)
+
+local function applySelectionBoxToPart(part)
+    if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end); activeSelectionBox = nil end
+    if not part then return end
+    activeSelectionBox = C("SelectionBox", { Color3 = Color3.fromRGB(0,255,255), LineThickness = 0.05, Adornee = part }, screen)
+end
+
+local function updateObjectScannerUI()
+    if not selectedPart or not selectedPart.Parent then
+        selectedPartName.Text = "Selected: None"
+        partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle"
+        applySelectionBoxToPart(nil)
+        return
+    end
+    selectedPartName.Text = "Selected: " .. string.sub(selectedPart.Name, 1, 16)
+    local ownerStr = getPartNetworkOwner(selectedPart)
+    local distStr = "Infinite"
+    if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+        local r = lp.Character.HumanoidRootPart
+        distStr = string.format("%d studs", math.floor((selectedPart.Position - r.Position).Magnitude))
+    end
+    local anchoredStr = selectedPart.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
+    partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr)
+end
+
+searchByNameBtn.MouseButton1Click:Connect(function()
+    local name = partNameBox.Text
+    if name == "" then
+        partInfoLabel.Text = "⚠️ Please enter a part name!"
+        return
+    end
+    
+    partInfoLabel.Text = "🔍 Searching..."
+    
+    task.spawn(function()
+        local found = Workspace:FindFirstChild(name, true)
+        
+        if found and found:IsA("BasePart") then
+            if selectedPart then lastSelectedPart = selectedPart end
+            selectedPart = found
+            applySelectionBoxToPart(selectedPart)
+            updateObjectScannerUI()
+            partInfoLabel.Text = string.format("✅ Found: %s", found.Name)
+        else
+            partInfoLabel.Text = "❌ No part named: " .. name
+        end
+        partNameBox.Text = ""
+    end)
+end)
+
+selectPartBtn.MouseButton1Click:Connect(function()
+    clearConnection("BringSelectMouse")
+    selectPartBtn.Text = "🖱️ Click..."
+    selectPartBtn.BackgroundColor3 = Color3.fromRGB(200,140,40)
+
+    local mouse = lp:GetMouse()
+    local bSelectConn = mouse.Button1Down:Connect(function()
+        local target = mouse.Target
+        clearConnection("BringSelectMouse")
+        selectPartBtn.Text = "🎯 Select"
+        selectPartBtn.BackgroundColor3 = Color3.fromRGB(90,63,150)
+        if target then
+            if isCharacterPart(target) then
+                partInfoLabel.Text = "⚠️ Cannot select player parts!"
+                return
+            end
+            if selectedPart then lastSelectedPart = selectedPart end
+            selectedPart = target
+            applySelectionBoxToPart(selectedPart)
+            updateObjectScannerUI()
+        end
+    end)
+    registerConnection("BringSelectMouse", bSelectConn)
+end)
+
+reselectLastBtn.MouseButton1Click:Connect(function()
+    if lastSelectedPart and lastSelectedPart.Parent then
+        local temp = selectedPart
+        selectedPart = lastSelectedPart
+        lastSelectedPart = temp
+        applySelectionBoxToPart(selectedPart)
+        updateObjectScannerUI()
+    end
+end)
+
+local function networkBring(part, targetCF)
+    if not part or part.Anchored then return false end
+    pcall(function()
+        part.CFrame = targetCF
+        part.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        part.AssemblyAngularVelocity = Vector3.new(0,0,0)
+    end)
+    return true
 end
 
 bringBtn.MouseButton1Click:Connect(function()
-    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
-    if name == "" then
-        flashBtn(bringBtn, "Empty", 0.8)
+    if not selectedPart or not selectedPart.Parent then return end
+    if selectedPart.Anchored then
+        partInfoLabel.Text = "❌ Cannot bring anchored object!"
         return
     end
-    local target = findFirstByName(name)
-    if not target then
-        flashBtn(bringBtn, "Not Found", 1.2)
-        return
-    end
-    local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        flashBtn(bringBtn, "No HRP", 1.2)
-        return
-    end
-    local dest = hrp.CFrame + Vector3.new(0,5,0)
+    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local root = lp.Character.HumanoidRootPart
+    local targetCF = root.CFrame * CFrame.new(0, 0, -4)
+    networkBring(selectedPart, targetCF)
+    partInfoLabel.Text = "✅ Bring executed!"
+    updateObjectScannerUI()
+end)
 
-    local ok, res = pcall(function() return moveTo(target, dest) end)
-    if not ok then
-        flashBtn(bringBtn, "Err", 1.2)
-        warn("BringPart pcall error:", res)
-        return
-    end
-    if res == true then
-        flashBtn(bringBtn, "Done", 0.9)
-    else
-        flashBtn(bringBtn, "Fail", 1.2)
-        warn("BringPart failed:", res)
-    end
+tpToPartBtn.MouseButton1Click:Connect(function()
+    if not selectedPart or not selectedPart.Parent then return end
+    local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    root.CFrame = selectedPart.CFrame * CFrame.new(0, 3, 0)
+    updateObjectScannerUI()
 end)
 
 bringAllBtn.MouseButton1Click:Connect(function()
-    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
-    if name == "" then
-        flashBtn(bringAllBtn, "Empty", 0.8)
+    if not selectedPart or not selectedPart.Parent then return end
+    if selectedPart.Anchored then
+        partInfoLabel.Text = "❌ Master object is anchored!"
         return
     end
-    local list = findAllByName(name)
-    if #list == 0 then
-        flashBtn(bringAllBtn, "No Match", 1.2)
-        return
-    end
-    local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        flashBtn(bringAllBtn, "No HRP", 1.2)
-        return
-    end
-    local basePos = hrp.Position + Vector3.new(0,5,0)
-    local offsetStep = 4
-    for i, obj in ipairs(list) do
-        local dest = CFrame.new(basePos + Vector3.new(((i-1)%5)*offsetStep, math.floor((i-1)/5)*-offsetStep, 0))
-        local ok, res = pcall(function() return moveTo(obj, dest) end)
-        if not ok then
-            warn("BringAll pcall error for", obj:GetFullName(), res)
-        else
-            if res ~= true then
-                warn("BringAll moveTo failed for", obj:GetFullName(), res)
+    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local name = selectedPart.Name
+    local count = 0
+    local targetCF = lp.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -5)
+    
+    partInfoLabel.Text = "🌀 Scanning..."
+    
+    task.spawn(function()
+        local allItems = Workspace:GetDescendants()
+        for i = 1, #allItems do
+            local p = allItems[i]
+            if p and p:IsA("BasePart") and p.Name == name and not p.Anchored and not isCharacterPart(p) then
+                networkBring(p, targetCF)
+                count = count + 1
             end
+            if i % 150 == 0 then task.wait()
         end
-    end
-    flashBtn(bringAllBtn, "Done", 1)
-end)
-
-bringPlayerBtn.MouseButton1Click:Connect(function()
-    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$","%1")
-    if type(doBringPlayerByName) == "function" then
-        doBringPlayerByName(name)
-        bringBox.Text = ""
-    else
-        flashBtn(bringPlayerBtn, "N/A", 1)
-    end
-end)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.Q then
-        local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
-        if name ~= "" then
-            if type(doBringPlayerByName) == "function" then
-                doBringPlayerByName(name)
-                bringBox.Text = ""
-            end
-            return
-        end
-        local cam = workspace.CurrentCamera
-        if not cam then return end
-        local ray = Ray.new(cam.CFrame.Position, cam.CFrame.LookVector * 200)
-        local part, _ = workspace:FindPartOnRayWithIgnoreList(ray, {lp.Character}, false, true)
-        if not part then
-            flashBtn(bringPlayerBtn, "No Target", 1)
-            return
-        end
-        local model = part:FindFirstAncestorOfClass("Model")
-        if not model then
-            flashBtn(bringPlayerBtn, "No Target", 1)
-            return
-        end
-        local found = false
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr.Character == model and plr ~= lp then
-                if type(doBringPlayerByName) == "function" then
-                    doBringPlayerByName(plr.Name)
-                end
-                found = true
-                break
-            end
-        end
-        if not found then flashBtn(bringPlayerBtn, "No Target", 1) end
-    end
-end)
-
-local TELEPORT_TWEEN_TIME = 0.22
-local goDebounce = false
-
-local function findPartBest(name)
-    if type(findFirstByName) == "function" then
-        return findFirstByName(name)
-    end
-    local key = tostring(name or ""):lower()
-    if key == "" then return nil end
-    local best, bd = nil, math.huge
-    local hrpPos = (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") and lp.Character.HumanoidRootPart.Position) or Vector3.new()
-    for _, v in ipairs(workspace:GetDescendants()) do
-        if v:IsA("BasePart") and v.Name:lower():find(key,1,true) then
-            local d = (v.Position - hrpPos).Magnitude
-            if d < bd then bd = d; best = v end
-        end
-    end
-    return best
-end
-
-local function GoToPartByName(name)
-    if goDebounce then return false, "Busy" end
-    goDebounce = true
-    task.defer(function() task.wait(0.6); goDebounce = false end)
-
-    if not (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return false, "No HRP" end
-    local part = findPartBest(name)
-    if not part then return false, "Part not found" end
-
-    local dest = part.Position + Vector3.new(0,4,0)
-    local hrp = lp.Character.HumanoidRootPart
-    local ok, err = pcall(function()
-        if TELEPORT_TWEEN_TIME > 0 then
-            TweenService:Create(hrp, TweenInfo.new(TELEPORT_TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = CFrame.new(dest)}):Play()
-        else
-            hrp.CFrame = CFrame.new(dest)
-        end
+        partInfoLabel.Text = string.format("🌀 Brought %d items!", count)
+        updateObjectScannerUI()
     end)
-    if not ok then
-        pcall(function() hrp.CFrame = CFrame.new(dest) end)
-    end
-    if lastPos ~= nil then
-        lastPos = hrp.Position
-    end
-    return true, "Teleported to "..(part.Name or "Part")
-end
-
-goBtn.MouseButton1Click:Connect(function()
-    local name = tostring(bringBox.Text or ""):gsub("^%s*(.-)%s*$","%1")
-    if name == "" then
-        flashBtn(goBtn, "Empty", 0.8)
-        return
-    end
-    local ok, msg = pcall(function() return GoToPartByName(name) end)
-    if not ok then
-        flashBtn(goBtn, "Err", 1.2)
-        warn("[GoToPart] error:", msg)
-        return
-    end
-    flashBtn(goBtn, "Go", 0.6)
 end)
 
-local antiRow = safeTabRow(2, "AntiBring")
-for _, ch in ipairs(antiRow:GetChildren()) do
-    if not ch:IsA("UIListLayout") and not ch:IsA("UIPadding") then
-        pcall(function() ch:Destroy() end)
-    end
-end
+-- ====================================================================
+-- PHYSICS SANDBOX
+-- ====================================================================
+local sandboxTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
+C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Physics Sandbox Environment ---", TextColor3 = Color3.fromRGB(210,120,40), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, sandboxTitleRow)
 
-local antiBtnFrame = safeC("Frame", {
-    Parent = antiRow,
-    Size = UDim2.new(0,90,1,0),
-    Position = UDim2.new(0,310,0,0),
-    BackgroundTransparency = 1
-}, antiRow)
-safeC("UIListLayout", {
-    Parent = antiBtnFrame,
-    FillDirection = Enum.FillDirection.Vertical,
-    SortOrder = Enum.SortOrder.LayoutOrder,
-    Padding = UDim.new(0,4)
-}, antiBtnFrame)
+local sandActionsRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,36), BackgroundTransparency = 1 })
+lockToMeBtn = C("TextButton", { Parent = sandActionsRow, Size = UDim2.new(0,180,1,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "🔒 Lock to Me: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, lockToMeBtn)
 
-local antiBtn = safeC("TextButton", {
-    Parent = antiBtnFrame,
-    Size = UDim2.new(1,0,1,0),
-    BackgroundColor3 = Color3.fromRGB(90,90,100),
-    BorderSizePixel = 0,
-    Text = "AntiBring: OFF",
-    TextColor3 = Color3.fromRGB(235,235,240),
-    Font = Enum.Font.GothamBold,
-    TextSize = 14
-}, antiBtnFrame)
-safeC("UICorner", { CornerRadius = UDim.new(0,8) }, antiBtn)
+freezeBtn = C("TextButton", { Parent = sandActionsRow, Size = UDim2.new(0,180,1,0), Position = UDim2.new(0,195,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "🥶 Freeze: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
+C("UICorner", { CornerRadius = UDim.new(0,8) }, freezeBtn)
 
-local AntiBringEnabled = false
-local antiConn = nil
-local lastPos = nil
-local BRING_THRESHOLD = 60
-
-local function startAntiBringLoop()
-    if antiConn then antiConn:Disconnect(); antiConn = nil end
-    if not (lp and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return end
-    local hrp = lp.Character.HumanoidRootPart
-    lastPos = hrp.Position
-    antiConn = RunService.Heartbeat:Connect(function()
-        if not AntiBringEnabled then lastPos = hrp.Position; return end
-        if not hrp or not hrp.Parent then return end
-        local cur = hrp.Position
-        local d = (cur - lastPos).Magnitude
-        if d > BRING_THRESHOLD then
-            pcall(function() hrp.CFrame = CFrame.new(lastPos) end)
-            warn("[AntiBring] reverted unexpected teleport (d="..tostring(math.floor(d))..")")
-            lastPos = hrp.Position
-        else
-            lastPos = cur
-        end
-    end)
-end
-
-antiBtn.MouseButton1Click:Connect(function()
-    AntiBringEnabled = not AntiBringEnabled
-    antiBtn.Text = AntiBringEnabled and "AntiBring: ON" or "AntiBring: OFF"
-    antiBtn.BackgroundColor3 = AntiBringEnabled and Color3.fromRGB(80,200,120) or Color3.fromRGB(90,90,100)
-    if AntiBringEnabled then
-        startAntiBringLoop()
-    else
-        if antiConn then antiConn:Disconnect(); antiConn = nil end
-    end
+lockToMeBtn.MouseButton1Click:Connect(function()
+    if not selectedPart then partInfoLabel.Text = "⚠️ Select an object first!"; return end
+    state.lockToMeEnabled = not state.lockToMeEnabled
+    lockToMeBtn.Text = state.lockToMeEnabled and "🔒 Lock to Me: ON" or "🔒 Lock to Me: OFF"
+    TweenService:Create(lockToMeBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.lockToMeEnabled and Color3.fromRGB(210,120,40) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
-lp.CharacterAdded:Connect(function()
-    task.wait(0.12)
-    if AntiBringEnabled then startAntiBringLoop() end
+freezeBtn.MouseButton1Click:Connect(function()
+    if not selectedPart then partInfoLabel.Text = "⚠️ Select an object first!"; return end
+    state.freezeEnabled = not state.freezeEnabled
+    freezeBtn.Text = state.freezeEnabled and "🥶 Freeze: ON" or "🥶 Freeze: OFF"
+    TweenService:Create(freezeBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.freezeEnabled and Color3.fromRGB(90,140,210) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
-table.insert(allConns, inputQConn)
+local physicsSandboxConn = RunService.Heartbeat:Connect(function()
+    local now = time()
+    if now - lastPhysicsUpdate < Config.PHYSICS_THROTTLE_FPS then return end
+    lastPhysicsUpdate = now
 
-applyTheme("Dark")
-
-local function cleanupAll()
-    for plr, _ in pairs(espObjects) do
-        removeESPForPlayer(plr)
+    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    local root = lp.Character.HumanoidRootPart
+    local currentPos = root.Position
+    
+    local shouldUpdate = false
+    if lastPosition and (currentPos - lastPosition).Magnitude > 0.1 then
+        shouldUpdate = true
+    elseif now - lastForceUpdate > Config.FORCE_UPDATE_INTERVAL then
+        shouldUpdate = true
+        lastForceUpdate = now
     end
+    
+    if not shouldUpdate then return end
+    lastPosition = currentPos
 
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            pcall(function() obj.LocalTransparencyModifier = 0 end)
-        end
-    end
+    if not selectedPart or not selectedPart.Parent or selectedPart.Anchored then return end
 
-    if bv then
-        pcall(function() bv:Destroy() end)
-        bv = nil
-    end
-
-    if flyConn and flyConn.Connected then
-        pcall(function() flyConn:Disconnect() end)
-        flyConn = nil
-    end
-    if noclipConn and noclipConn.Connected then
-        pcall(function() noclipConn:Disconnect() end)
-        noclipConn = nil
-    end
-
-    for _, c in ipairs(allConns) do
-        if c and c.Connected then
-            pcall(function() c:Disconnect() end)
-        end
-    end
-    table.clear(allConns)
-
-    pcall(function() ContextActionService:UnbindAction("ToggleMenu_RShift") end)
-    pcall(function() ContextActionService:UnbindAction("ToggleBring_Q") end)
-
-    if lp and lp.Character then
-        local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
+    if state.lockToMeEnabled then
+        local pOwner = getPartNetworkOwner(selectedPart)
+        if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
             pcall(function()
-                humanoid.WalkSpeed = 16
-                humanoid.JumpPower = 50
-                humanoid.PlatformStand = false
+                selectedPart.CFrame = root.CFrame * CFrame.new(0, 1, -5)
+                selectedPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                selectedPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
             end)
         end
     end
 
-    speedOn = false
-    jumpEnabled = false
-    infJump = false
-    noclip = false
-    esp = false
-    xray = false
-    flying = false
-
-    if screen and screen.Parent then
-        pcall(function() screen:Destroy() end)
+    if state.freezeEnabled then
+        local pOwner = getPartNetworkOwner(selectedPart)
+        if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
+            pcall(function()
+                selectedPart.AssemblyLinearVelocity = Vector3.new(0, 0.08, 0)
+                selectedPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            end)
+        end
     end
+end)
+registerConnection("PhysicsSandboxCore", physicsSandboxConn)
+
+-- ====================================================================
+-- INITIALIZATION
+-- ====================================================================
+local function setupCharacterSignals(char)
+    clearConnection("CharDescendantAdded")
+    clearConnection("CharDescendantRemoving")
+    if not char then return end
+
+    refreshCharacterPartsCache(char)
+    hookMultiJumpState(char)
+
+    local addedC = char.DescendantAdded:Connect(function(p)
+        if p:IsA("BasePart") then
+            table.insert(characterPartsCache, p)
+            if originalCollisions[p] == nil then originalCollisions[p] = p.CanCollide end
+            if state.noclip then p.CanCollide = false end
+        end
+    end)
+    registerConnection("CharDescendantAdded", addedC)
+
+    local remC = char.DescendantRemoving:Connect(function(p)
+        local idx = table.find(characterPartsCache, p)
+        if idx then table.remove(characterPartsCache, idx) end
+    end)
+    registerConnection("CharDescendantRemoving", remC)
 end
 
-local function onCharacterAdded(char)
-    local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
-    if hum then
-        if speedOn then pcall(function() hum.WalkSpeed = speedValue end) end
-        pcall(function() hum.UseJumpPower = true; hum.JumpPower = (jumpEnabled and 100 or 50) end)
-        if flying and not bv then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                bv = Instance.new("BodyVelocity")
-                bv.MaxForce = Vector3.new(1e5,1e5,1e5)
-                bv.Velocity = Vector3.new(0,0,0)
-                bv.Parent = hrp
-                pcall(function() hum.PlatformStand = true end)
-            end
+local mainCharacterAdded = lp.CharacterAdded:Connect(function(char)
+    task.wait(0.2)
+    table.clear(originalCollisions)
+    table.clear(characterPartsCache)
+    setupCharacterSignals(char)
+    applyCharacterPhysics(char)
+    if state.flying then updateFlyState() end
+end)
+registerConnection("MainCharacterAddedSignal", mainCharacterAdded)
+
+if lp.Character then
+    setupCharacterSignals(lp.Character)
+    applyCharacterPhysics(lp.Character)
+end
+pcall(loadUIPreset)
+
+-- ====================================================================
+-- SECURITY: PERIODIC VERIFICATION
+-- ====================================================================
+local function periodicVerification()
+    while state.scriptEnabled do
+        task.wait(Config.SECURITY_HEARTBEAT)
+        local allowed = false
+        for _, id in ipairs(Config.ALLOWED_USER_IDS) do
+            if id == lp.UserId then allowed = true; break end
+        end
+        if not allowed then
+            warn("[Security] Unauthorized modification detected! Shutting down.")
+            cleanupAll()
+            break
         end
     end
 end
 
-local function onCharacterRemoving()
-    if bv then pcall(function() bv:Destroy() end) bv = nil end
+task.spawn(periodicVerification)
+
+-- ====================================================================
+-- MENU TOGGLE
+-- ====================================================================
+CAS:BindAction("ToggleMenu_RShift", function(_, actionState)
+    if UIS:GetFocusedTextBox() then return end
+    if actionState == Enum.UserInputState.Begin then
+        state.hidden = not state.hidden
+        win.Visible = not state.hidden
+        for i = 1, #tabs do
+            tabContents[i].Visible = not state.hidden and (i == currentTab)
+        end
+        toggleBtn.Text = state.hidden and "Show" or "Hide"
+    end
+end, false, Enum.KeyCode.RightShift)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    state.hidden = not state.hidden
+    win.Visible = not state.hidden
+    for i = 1, #tabs do
+        tabContents[i].Visible = not state.hidden and (i == currentTab)
+    end
+    toggleBtn.Text = state.hidden and "Show" or "Hide"
+end)
+
+-- ====================================================================
+-- CLEANUP
+-- ====================================================================
+cleanupAll = function()
+    print("[System] Unloading...")
+    state.scriptEnabled = false
+    state.lootPipelineActive = false
+    
+    if state.xray then toggleXrayState() end
+    clearLootEsp()
+    
+    for _, p in ipairs(Players:GetPlayers()) do removeESP(p, true) end
+    resetFlyState()
+
+    for id, conn in pairs(ConnectionRegistry) do
+        if conn then pcall(function() conn:Disconnect() end) end
+    end
+    table.clear(ConnectionRegistry)
+    
+    if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end) end
+    if screen then pcall(function() screen:Destroy() end) end
+    print("[System] Cleanup complete.")
 end
 
-local charAddedConn = lp.CharacterAdded:Connect(onCharacterAdded)
-local charRemovingConn = lp.CharacterRemoving:Connect(onCharacterRemoving)
-if charAddedConn then table.insert(allConns, charAddedConn) end
-if charRemovingConn then table.insert(allConns, charRemovingConn) end
+_G.UnloadLinhScript = cleanupAll
 
-if lp.Character then onCharacterAdded(lp.Character) end
-
-win = CreateMainUI()
-createTabs()
-do
-    local setRow = TabRow(3, "Reset Script")
-end
-ContextActionService:BindAction("ToggleUI_P", function(_, state)
-    if state == Enum.UserInputState.Begin then toggleUI() end
-    return Enum.ContextActionResult.Sink
-end, false, Enum.KeyCode.P)
-
-rebindAllKeyActions()
+print("=" .. string.rep("=", 60))
+print("Linh Script Premium v10.7.3 - Final Release Loaded!")
+print("Features: ESP | Jump | Loot ESP | Xray | Fly | Bring Part | Physics Sandbox")
+print("Hotkey: Right Shift (Menu) | B (Fly)")
+print("To unload: _G.UnloadLinhScript()")
+print("=" .. string.rep("=", 60))
