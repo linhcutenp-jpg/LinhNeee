@@ -1,4 +1,4 @@
-print("Gello, Bbi :YoyoHeart: - Enterprise Grade v10.7.3 - FINAL STABLE")
+print("Gello, Bbi :YoyoHeart:")
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -1700,7 +1700,7 @@ end
 _G.UnloadLinhScript = cleanupAll
 
 print("=" .. string.rep("=", 60))
-print("Linh Script Premium v10.7.3 - Final Release Loaded!")
+print("Linh Script Premium v10.7.3")
 print("Features: ESP | Jump | Loot ESP | Xray | Fly | Bring Part | Physics Sandbox")
 print("Hotkey: Right Shift (Menu) | B (Fly)")
 print("To unload: _G.UnloadLinhScript()")
