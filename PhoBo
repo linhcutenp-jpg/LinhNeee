@@ -1,20 +1,19 @@
-print("Gello, Bbi :YoyoHeart: - Enterprise Grade v10.7.3 - Final Release (Fixed)")
+print("Gello, Bbi :YoyoHeart: - Enterprise Grade v10.7.3 - FINAL STABLE")
 
-local Players, TweenService, UIS, CAS, RunService, Workspace, CollectionService, HttpService =
-    game:GetService("Players"),
-    game:GetService("TweenService"),
-    game:GetService("UserInputService"),
-    game:GetService("ContextActionService"),
-    game:GetService("RunService"),
-    game:GetService("Workspace"),
-    game:GetService("CollectionService"),
-    game:GetService("HttpService")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local CAS = game:GetService("ContextActionService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
+local HttpService = game:GetService("HttpService")
 
 local lp = Players.LocalPlayer
 local pg = lp:WaitForChild("PlayerGui")
 
 -- ====================================================================
--- CONFIGURATION OBJECT
+-- CONFIGURATION
 -- ====================================================================
 local Config = {
     PROTECT = true,
@@ -55,12 +54,12 @@ local LOOT_TAG = Config.LOOT_TAG
 local LOOT_RADIUS_SQ = Config.LOOT_SCAN_RADIUS * Config.LOOT_SCAN_RADIUS
 
 -- ====================================================================
--- SECURITY: Whitelist Check
+-- WHITELIST CHECK
 -- ====================================================================
 if Config.PROTECT then
     local allowed = false
     for _, id in ipairs(Config.ALLOWED_USER_IDS) do
-        if id == lp.UserId then allowed = true; break end
+        if id == lp.UserId then allowed = true
     end
     if not allowed then return end
 end
@@ -80,7 +79,7 @@ local function safePCall(func, errorMsg)
 end
 
 -- ====================================================================
--- STATE MANAGEMENT
+-- STATE
 -- ====================================================================
 local state = {
     hidden = false,
@@ -108,7 +107,7 @@ local lastForceUpdate = 0
 local lastPosition = nil
 
 -- ====================================================================
--- CENTRAL REGISTRY
+-- REGISTRY & DATA
 -- ====================================================================
 local ConnectionRegistry = {}
 local espData = {}
@@ -154,7 +153,7 @@ local function clearConnection(id)
 end
 
 -- ====================================================================
--- HELPER FUNCTIONS
+-- HELPERS
 -- ====================================================================
 local function getRoot(char)
     return char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
@@ -165,31 +164,31 @@ local function isHumanoidValid(hum)
 end
 
 local function getPartNetworkOwner(part)
-    if not part then return "Invalid (Nil)" end
-    if part.Anchored then return "Static (Server/Anchored)" end
-
+    if not part then return "Invalid (Nil)"
+    if part.Anchored then return "Static (Server/Anchored)"
     local success, owner = pcall(function() return part:GetNetworkOwner() end)
-    if not success then return "Unknown (pcall failed)" end
-
-    if owner == lp then return "Client (You)" end
-    if owner == nil then return "Server (Unassigned/Static)" end
+    if not success then return "Unknown (pcall failed)"
+    if owner == lp then return "Client (You)"
+    if owner == nil then return "Server (Unassigned/Static)"
     return "Player: " .. owner.Name
 end
 
 local function isCharacterPart(part)
-    if not part or not part.Parent then return false end
+    if not part or not part.Parent then return false
     local model = part:FindFirstAncestorOfClass("Model")
-    if model and Players:GetPlayerFromCharacter(model) then return true end
+    if model and Players:GetPlayerFromCharacter(model) then return true
     if part.Parent:IsA("Accessory") and part.Parent.Parent then
-        if Players:GetPlayerFromCharacter(part.Parent.Parent) then return true end
+        if Players:GetPlayerFromCharacter(part.Parent.Parent) then return true
     end
     return false
 end
 
 local function C(class, props, parent)
     local obj = Instance.new(class)
-    if props then for k, v in pairs(props) do pcall(function() obj[k] = v end) end end
-    if parent then obj.Parent = parent end
+    if props then
+        for k, v in pairs(props) do pcall(function() obj[k] = v end)
+    end
+    if parent then obj.Parent = parent
     return obj
 end
 
@@ -208,6 +207,7 @@ title = C("TextLabel", { Size = UDim2.new(1,-140,1,0), Position = UDim2.fromOffs
 local toggleBtn = C("TextButton", { Name = "ToggleBtn", Size = UDim2.fromOffset(65,26), Position = UDim2.new(1,-110,0.5,-13), BackgroundColor3 = Config.THEMES.Dark.Accent, BorderSizePixel = 0, Text = "Hide", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 13 }, header)
 C("UICorner", { CornerRadius = UDim.new(0,8) }, toggleBtn)
 
+-- Tabs
 local tabs = { "Main", "Combat/ESP", "System" }
 local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,32), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
 local tabButtons, tabContents = {}, {}
@@ -239,7 +239,7 @@ local function TabRow(tabIndex, labelText)
 end
 
 -- ====================================================================
--- PERSISTENT CONFIGURATION
+-- PERSISTENT CONFIG
 -- ====================================================================
 local function saveUIPreset()
     if writefile then
@@ -271,7 +271,7 @@ local function loadUIPreset()
 end
 
 -- ====================================================================
--- UI DRAG & DROP
+-- DRAG & DROP
 -- ====================================================================
 header.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -281,10 +281,9 @@ end)
 
 local throttleDelay, lastUpdate = 1/50, 0
 local dragConnection = UIS.InputChanged:Connect(function(input)
-    if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement then return
     local now = time()
-    if now - lastUpdate < throttleDelay then return end
+    if now - lastUpdate < throttleDelay then return
     lastUpdate = now
 
     if draggingWindow and dragStart and startPos then
@@ -310,7 +309,7 @@ local dragConnection = UIS.InputChanged:Connect(function(input)
             Config.ESP_FILL_TRANSPARENCY = rel
             fillKnob.Position = UDim2.new(rel, -7, 0.5, -7)
             fillValue.Text = string.format("%.2f", rel)
-            for _, d in pairs(espData) do if d.highlight then d.highlight.FillTransparency = rel end end
+            for _, d in pairs(espData) do if d.highlight then d.highlight.FillTransparency = rel end
         end
     end
 
@@ -322,7 +321,7 @@ local dragConnection = UIS.InputChanged:Connect(function(input)
             state.jumpHeight = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
             jumpKnob.Position = UDim2.new(rel, -7, 0.5, -7)
             jumpValue.Text = tostring(state.jumpHeight)
-            if state.jumpEnabled and currentHumanoid then enforceJumpValue(currentHumanoid) end
+            if state.jumpEnabled and currentHumanoid then enforceJumpValue(currentHumanoid)
         end
     end
 
@@ -379,6 +378,7 @@ for name, _ in pairs(Config.THEMES) do
     end)
 end
 
+-- Speed
 local speedRow = TabRow(1, "WalkSpeed Hack")
 speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBtn)
@@ -393,7 +393,7 @@ speedBox.FocusLost:Connect(function()
     if val and val >= 16 and val <= Config.MAX_SAFE_WALK_SPEED then
         state.speedValue = math.floor(val)
         speedNum.Text = tostring(state.speedValue)
-        if state.speedOn and lp.Character then applyCharacterPhysics(lp.Character) end
+        if state.speedOn and lp.Character then applyCharacterPhysics(lp.Character)
     end
 end)
 
@@ -401,11 +401,11 @@ speedBtn.MouseButton1Click:Connect(function()
     state.speedOn = not state.speedOn
     speedBtn.Text = state.speedOn and "ON" or "OFF"
     TweenService:Create(speedBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.speedOn and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-    if state.speedOn then applyCharacterPhysics(lp.Character) else applyCharacterPhysics(lp.Character) end
+    applyCharacterPhysics(lp.Character)
 end)
 
 -- ====================================================================
--- JUMP MODULE V10.7.3 - EVENT-DRIVEN (FINAL)
+-- JUMP MODULE
 -- ====================================================================
 local currentHumanoid = nil
 local isInternalUpdate = false
@@ -417,11 +417,11 @@ local function detectJumpMethod(humanoid)
 end
 
 local function enforceJumpValue(humanoid)
-    if not state.jumpEnabled then return end
-    if not humanoid or not isHumanoidValid(humanoid) then return end
+    if not state.jumpEnabled then return
+    if not humanoid or not isHumanoidValid(humanoid) then return
 
     local now = time()
-    if now - lastJumpReset < Config.JUMP_THROTTLE then return end
+    if now - lastJumpReset < Config.JUMP_THROTTLE then return
     lastJumpReset = now
 
     local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
@@ -448,14 +448,14 @@ local function enforceJumpValue(humanoid)
 end
 
 local function safeJumpHook()
-    if not lp.Character then return false end
+    if not lp.Character then return false
 
     local hum = lp.Character:FindFirstChildOfClass("Humanoid")
     local root = lp.Character:FindFirstChild("HumanoidRootPart")
 
-    if not hum or not root then return false end
-    if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
-    if hum:GetState() == Enum.HumanoidStateType.Jumping then return false end
+    if not hum or not root then return false
+    if hum:GetState() == Enum.HumanoidStateType.Dead then return false
+    if hum:GetState() == Enum.HumanoidStateType.Jumping then return false
 
     hum:ChangeState(Enum.HumanoidStateType.Jumping)
 
@@ -472,7 +472,7 @@ end
 
 local function setupJumpPatch(character)
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
+    if not humanoid then return
 
     currentHumanoid = humanoid
     currentJumpMethod = detectJumpMethod(humanoid)
@@ -482,8 +482,8 @@ local function setupJumpPatch(character)
     clearConnection("JumpPropertyListener")
 
     local propertyConn = humanoid:GetPropertyChangedSignal(propertyName):Connect(function()
-        if isInternalUpdate then return end
-        if not state.jumpEnabled then return end
+        if isInternalUpdate then return
+        if not state.jumpEnabled then return
 
         local currentValue = (currentJumpMethod == "Height") and humanoid.JumpHeight or humanoid.JumpPower
         local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
@@ -517,15 +517,14 @@ if lp.Character then
     task.defer(function()
         if lp.Character then
             local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid then setupJumpPatch(lp.Character) end
+            if humanoid then setupJumpPatch(lp.Character)
         end
     end)
 end
 
 clearConnection("JumpRequest")
 local jumpRequestConn = UIS.JumpRequest:Connect(function()
-    if not lp.Character then return end
-
+    if not lp.Character then return
     if state.infJump then
         safeJumpHook()
     elseif state.multiJump and jumpCount < maxJumps then
@@ -534,15 +533,30 @@ local jumpRequestConn = UIS.JumpRequest:Connect(function()
 end)
 registerConnection("JumpRequest", jumpRequestConn)
 
--- ====================================================================
--- PHYSICS FUNCTIONS
--- ====================================================================
-applyCharacterPhysics = function(char)
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum or not isHumanoidValid(hum) then return end
+local function hookMultiJumpState(char)
+    clearConnection("MultiJumpState")
+    if not char then return
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        local conn = hum.StateChanged:Connect(function(_, newState)
+            if newState == Enum.HumanoidStateType.Landed then
+                jumpCount = 0
+            elseif newState == Enum.HumanoidStateType.Jumping then
+                jumpCount = jumpCount + 1
+            end
+        end)
+        registerConnection("MultiJumpState", conn)
+    end
+end
 
-    if hum:GetState() == Enum.HumanoidStateType.Dead then return end
+-- ====================================================================
+-- PHYSICS
+-- ====================================================================
+local function applyCharacterPhysics(char)
+    if not char then return
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or not isHumanoidValid(hum) then return
+    if hum:GetState() == Enum.HumanoidStateType.Dead then return
 
     hum.WalkSpeed = state.speedOn and state.speedValue or 16
     hum.UseJumpPower = true
@@ -551,13 +565,13 @@ applyCharacterPhysics = function(char)
     hum.JumpPower = math.min(targetJump, Config.MAX_SAFE_JUMP_POWER)
 end
 
-refreshCharacterPartsCache = function(char)
+local function refreshCharacterPartsCache(char)
     table.clear(characterPartsCache)
-    if not char then return end
+    if not char then return
     for _, part in pairs(char:GetDescendants()) do
         if part:IsA("BasePart") then
             table.insert(characterPartsCache, part)
-            if originalCollisions[part] == nil then originalCollisions[part] = part.CanCollide end
+            if originalCollisions[part] == nil then originalCollisions[part] = part.CanCollide
         end
     end
 end
@@ -572,9 +586,7 @@ local sHeartbeat = RunService.Heartbeat:Connect(function()
 end)
 registerConnection("SpeedHeartbeat", sHeartbeat)
 
--- ====================================================================
 -- JUMP UI
--- ====================================================================
 local jumpHeightRow = TabRow(1, "Jump Height")
 jumpBtn = C("TextButton", { Parent = jumpHeightRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, jumpBtn)
@@ -625,24 +637,8 @@ multiJumpBtn.MouseButton1Click:Connect(function()
     TweenService:Create(multiJumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.multiJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
 end)
 
-local function hookMultiJumpState(char)
-    clearConnection("MultiJumpState")
-    if not char then return end
-    local hum = char:WaitForChild("Humanoid", 5)
-    if hum then
-        local conn = hum.StateChanged:Connect(function(_, newState)
-            if newState == Enum.HumanoidStateType.Landed then
-                jumpCount = 0
-            elseif newState == Enum.HumanoidStateType.Jumping then
-                jumpCount = jumpCount + 1
-            end
-        end)
-        registerConnection("MultiJumpState", conn)
-    end
-end
-
 -- ====================================================================
--- NOCLIP CORE
+-- NOCLIP
 -- ====================================================================
 local noclipMasterRow = TabRow(1, "Noclip Core")
 noclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Noclip: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
@@ -657,11 +653,11 @@ noclipBtn.MouseButton1Click:Connect(function()
     TweenService:Create(noclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.noclip and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
     if not state.noclip then
         for part, orig in pairs(originalCollisions) do
-            if part and part.Parent then pcall(function() part.CanCollide = orig end) end
+            if part and part.Parent then pcall(function() part.CanCollide = orig end)
         end
         table.clear(originalCollisions)
         table.clear(characterPartsCache)
-        if lp.Character then refreshCharacterPartsCache(lp.Character) end
+        if lp.Character then refreshCharacterPartsCache(lp.Character)
     end
 end)
 
@@ -672,7 +668,7 @@ silentNoclipBtn.MouseButton1Click:Connect(function()
 end)
 
 local noclipConn = RunService.PreRender:Connect(function()
-    if not state.noclip or #characterPartsCache == 0 then return end
+    if not state.noclip or #characterPartsCache == 0 then return
 
     if state.silentNoclip then
         overlapParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -689,7 +685,7 @@ local noclipConn = RunService.PreRender:Connect(function()
                 else
                     for j = 1, #characterPartsCache do
                         local p = characterPartsCache[j]
-                        if p then p.CanCollide = originalCollisions[p] or true end
+                        if p then p.CanCollide = originalCollisions[p] or true
                     end
                 end
             end
@@ -740,7 +736,7 @@ local lootRow = TabRow(2, "Premium Loot ESP")
 lootEspBtn = C("TextButton", { Parent = lootRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Loot/Chest ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
 C("UICorner", { CornerRadius = UDim.new(0,8) }, lootEspBtn)
 
--- ESP Color
+-- ESP Functions
 local function getESPColor(plr)
     if lp.Team and plr.Team then
         return (plr.Team == lp.Team) and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
@@ -749,7 +745,7 @@ local function getESPColor(plr)
 end
 
 local function checkESPFilterValid(plr)
-    if state.espFilter == "All" then return true end
+    if state.espFilter == "All" then return true
     if state.espFilter == "Enemy Only" then
         return (lp.Team and plr.Team) and (lp.Team ~= plr.Team) or true
     end
@@ -759,22 +755,21 @@ local function checkESPFilterValid(plr)
     return true
 end
 
--- ESP Creation
 local function createESPForPlayer(plr)
-    if plr == lp or espData[plr] then return end
-    if not checkESPFilterValid(plr) then return end
+    if plr == lp or espData[plr] then return
+    if not checkESPFilterValid(plr) then return
 
     local data = { connections = {}, retryConn = nil, lastDist = nil }
     espData[plr] = data
 
     local function setupCharEsp(char)
-        if not state.esp or not char then return end
+        if not state.esp or not char then return
         if data.retryConn then pcall(function() data.retryConn:Disconnect() end); data.retryConn = nil end
 
         local function trySetup()
-            if not char.Parent then return false end
+            if not char.Parent then return false
             local root = getRoot(char)
-            if not root then return false end
+            if not root then return false
 
             if (state.espMode == "Highlight" or state.espMode == "Both") and not data.highlight then
                 data.highlight = C("Highlight", {
@@ -852,12 +847,12 @@ local updateAccum = 0
 
 local function requestEspUpdate(dt)
     updateAccum = updateAccum + dt
-    if updateAccum < Config.ESP_UPDATE_INTERVAL then return end
+    if updateAccum < Config.ESP_UPDATE_INTERVAL then return
     updateAccum = updateAccum - Config.ESP_UPDATE_INTERVAL
 
-    if not state.esp then return end
+    if not state.esp then return
     local myRoot = getRoot(lp.Character)
-    if not myRoot then return end
+    if not myRoot then return
     local myPos = myRoot.Position
 
     local enableHighlight = (state.espMode == "Highlight" or state.espMode == "Both")
@@ -945,15 +940,13 @@ end)
 registerConnection("ESPRenderLoop", espRenderConn)
 
 -- ====================================================================
--- LOOT ESP V4 - REGISTRY ONLY (OPTIMIZED)
+-- LOOT ESP
 -- ====================================================================
 local function isLootInstance(instance)
-    if not instance:IsA("BasePart") then return false end
+    if not instance:IsA("BasePart") then return false
     local nameLower = string.lower(instance.Name)
     for _, keyword in ipairs(Config.LOOT_KEYWORDS) do
-        if string.find(nameLower, keyword) then
-            return true
-        end
+        if string.find(nameLower, keyword) then return true end
     end
     return false
 end
@@ -978,7 +971,7 @@ local function createLootBillboard(part)
 end
 
 local function addLootToRegistry(part)
-    if lootRegistry[part] then return end
+    if lootRegistry[part] then return
     lootRegistry[part] = createLootBillboard(part)
 end
 
@@ -1003,7 +996,7 @@ local function onLootTagRemoved(part)
 end
 
 local function onNewInstance(instance)
-    if not instance:IsA("BasePart") then return end
+    if not instance:IsA("BasePart") then return
     if isLootInstance(instance) and not CollectionService:HasTag(instance, LOOT_TAG) then
         CollectionService:AddTag(instance, LOOT_TAG)
     end
@@ -1029,10 +1022,10 @@ registerConnection("LootDescendantAdded", descendantAddedConn)
 task.spawn(scanExistingLoot)
 
 local function updateLootESP()
-    if not state.lootEspEnabled or not lp.Character then return end
+    if not state.lootEspEnabled or not lp.Character then return
 
     local root = lp.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+    if not root then return
 
     local rootPos = root.Position
     local processedCount = 0
@@ -1070,7 +1063,7 @@ local function updateLootESP()
     end
 end
 
-clearLootEsp = function()
+local function clearLootEsp()
     for part, cache in pairs(lootRegistry) do
         if cache.billboard then pcall(function() cache.billboard:Destroy() end) end
     end
@@ -1123,9 +1116,9 @@ end
 
 local function updateFlyState()
     resetFlyState()
-    if not state.flying or not lp.Character then return end
+    if not state.flying or not lp.Character then return
     local root = lp.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+    if not root then return
 
     if state.flyMethod == "BodyVelocity" then
         flyBodyVelocity = C("BodyVelocity", { MaxForce = Vector3.new(1,1,1) * 9e9, Velocity = Vector3.new(0,0,0) }, root)
@@ -1205,7 +1198,7 @@ flyMethodBtn.MouseButton1Click:Connect(function()
 end)
 
 CAS:BindAction("FlyActionKey", function(_, actionState)
-    if UIS:GetFocusedTextBox() then return end
+    if UIS:GetFocusedTextBox() then return
     if actionState == Enum.UserInputState.Begin then
         toggleFlyState()
     end
@@ -1229,10 +1222,12 @@ xrayKnob.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserI
 local function cleanXray()
     clearConnection("XrayRuntime")
     for _, p in ipairs(CollectionService:GetTagged(XRAY_TAG)) do
-        if p and p.Parent then
-            p.Transparency = xrayOriginalParts[p] or 0
-        end
-        CollectionService:RemoveTag(p, XRAY_TAG)
+        pcall(function()
+            if p and p.Parent then
+                p.Transparency = xrayOriginalParts[p] or 0
+            end
+            CollectionService:RemoveTag(p, XRAY_TAG)
+        end)
     end
     table.clear(xrayOriginalParts)
 end
@@ -1269,7 +1264,7 @@ end
 xrayBtnUI.MouseButton1Click:Connect(toggleXrayState)
 
 -- ====================================================================
--- BRING PART & OBJECT SCANNER
+-- BRING PART
 -- ====================================================================
 local scannerTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
 C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Premium Object Scanner & Bring Tool ---", TextColor3 = Color3.fromRGB(150,130,220), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, scannerTitleRow)
@@ -1312,7 +1307,7 @@ C("UICorner", { CornerRadius = UDim.new(0,8) }, reselectLastBtn)
 
 local function applySelectionBoxToPart(part)
     if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end); activeSelectionBox = nil end
-    if not part then return end
+    if not part then return
     activeSelectionBox = C("SelectionBox", { Color3 = Color3.fromRGB(0,255,255), LineThickness = 0.05, Adornee = part }, screen)
 end
 
@@ -1395,7 +1390,7 @@ reselectLastBtn.MouseButton1Click:Connect(function()
 end)
 
 local function networkBring(part, targetCF)
-    if not part or part.Anchored then return false end
+    if not part or part.Anchored then return false
     pcall(function()
         part.CFrame = targetCF
         part.AssemblyLinearVelocity = Vector3.new(0,0,0)
@@ -1405,12 +1400,12 @@ local function networkBring(part, targetCF)
 end
 
 bringBtn.MouseButton1Click:Connect(function()
-    if not selectedPart or not selectedPart.Parent then return end
+    if not selectedPart or not selectedPart.Parent then return
     if selectedPart.Anchored then
         partInfoLabel.Text = "❌ Cannot bring anchored object!"
         return
     end
-    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return
 
     local root = lp.Character.HumanoidRootPart
     local targetCF = root.CFrame * CFrame.new(0, 0, -4)
@@ -1420,20 +1415,20 @@ bringBtn.MouseButton1Click:Connect(function()
 end)
 
 tpToPartBtn.MouseButton1Click:Connect(function()
-    if not selectedPart or not selectedPart.Parent then return end
+    if not selectedPart or not selectedPart.Parent then return
     local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+    if not root then return
     root.CFrame = selectedPart.CFrame * CFrame.new(0, 3, 0)
     updateObjectScannerUI()
 end)
 
 bringAllBtn.MouseButton1Click:Connect(function()
-    if not selectedPart or not selectedPart.Parent then return end
+    if not selectedPart or not selectedPart.Parent then return
     if selectedPart.Anchored then
         partInfoLabel.Text = "❌ Master object is anchored!"
         return
     end
-    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return
 
     local name = selectedPart.Name
     local count = 0
@@ -1493,10 +1488,10 @@ end)
 
 local physicsSandboxConn = RunService.Heartbeat:Connect(function()
     local now = time()
-    if now - lastPhysicsUpdate < Config.PHYSICS_THROTTLE_FPS then return end
+    if now - lastPhysicsUpdate < Config.PHYSICS_THROTTLE_FPS then return
     lastPhysicsUpdate = now
 
-    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return
     local root = lp.Character.HumanoidRootPart
     local currentPos = root.Position
 
@@ -1508,10 +1503,10 @@ local physicsSandboxConn = RunService.Heartbeat:Connect(function()
         lastForceUpdate = now
     end
 
-    if not shouldUpdate then return end
+    if not shouldUpdate then return
     lastPosition = currentPos
 
-    if not selectedPart or not selectedPart.Parent or selectedPart.Anchored then return end
+    if not selectedPart or not selectedPart.Parent or selectedPart.Anchored then return
 
     if state.lockToMeEnabled then
         local pOwner = getPartNetworkOwner(selectedPart)
@@ -1542,7 +1537,7 @@ registerConnection("PhysicsSandboxCore", physicsSandboxConn)
 local function setupCharacterSignals(char)
     clearConnection("CharDescendantAdded")
     clearConnection("CharDescendantRemoving")
-    if not char then return end
+    if not char then return
 
     refreshCharacterPartsCache(char)
     hookMultiJumpState(char)
@@ -1587,12 +1582,11 @@ local function periodicVerification()
         task.wait(Config.SECURITY_HEARTBEAT)
         local allowed = false
         for _, id in ipairs(Config.ALLOWED_USER_IDS) do
-            if id == lp.UserId then allowed = true; break end
+            if id == lp.UserId then allowed = true
         end
         if not allowed then
             warn("[Security] Unauthorized modification detected! Shutting down.")
             cleanupAll()
-            break
         end
     end
 end
@@ -1603,7 +1597,7 @@ task.spawn(periodicVerification)
 -- MENU TOGGLE
 -- ====================================================================
 CAS:BindAction("ToggleMenu_RShift", function(_, actionState)
-    if UIS:GetFocusedTextBox() then return end
+    if UIS:GetFocusedTextBox() then return
     if actionState == Enum.UserInputState.Begin then
         state.hidden = not state.hidden
         win.Visible = not state.hidden
@@ -1626,7 +1620,7 @@ end)
 -- ====================================================================
 -- CLEANUP
 -- ====================================================================
-cleanupAll = function()
+local function cleanupAll()
     print("[System] Unloading...")
     state.scriptEnabled = false
     state.lootPipelineActive = false
