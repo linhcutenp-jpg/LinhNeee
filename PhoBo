@@ -283,7 +283,11 @@ local function loadUIPreset()
     if isfile and isfile("LinhPremium_v10_7.json") then
         local success, data = pcall(function() return HttpService:JSONDecode(readfile("LinhPremium_v10_7.json")) end)
         if success and data then
-            if data.theme then currentThemeName = data.theme; win.BackgroundColor3 = Config.THEMES[data.theme].Primary; stroke.Color = Config.THEMES[data.theme].Accent end
+            if data.theme and Config.THEMES[data.theme] then
+                currentThemeName = data.theme
+                win.BackgroundColor3 = Config.THEMES[data.theme].Primary
+                stroke.Color = Config.THEMES[data.theme].Accent
+            end
             if data.speedValue then state.speedValue = data.speedValue; if speedNum then speedNum.Text = tostring(state.speedValue) end end
             if data.jumpHeight then state.jumpHeight = math.min(data.jumpHeight, Config.MAX_SAFE_JUMP_POWER); if jumpValue then jumpValue.Text = tostring(state.jumpHeight) end end
             if data.espDistance then Config.ESP_DISTANCE = data.espDistance; ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE; if distValue then distValue.Text = tostring(Config.ESP_DISTANCE) end end
@@ -1075,9 +1079,11 @@ local function onLootTagRemoved(part)
 end
 
 local function onNewInstance(instance)
-    if not instance:IsA("BasePart") then return end
+    if not instance or not instance.Parent or not instance:IsA("BasePart") then return end
     if isLootInstance(instance) and not CollectionService:HasTag(instance, LOOT_TAG) then
-        CollectionService:AddTag(instance, LOOT_TAG)
+        pcall(function()
+            CollectionService:AddTag(instance, LOOT_TAG)
+        end)
     end
 end
 
@@ -1085,8 +1091,11 @@ local function scanExistingLoot()
     local allParts = Workspace:GetDescendants()
     local total = #allParts
     for i = 1, total do
-        if isLootInstance(allParts[i]) then
-            CollectionService:AddTag(allParts[i], LOOT_TAG)
+        local part = allParts[i]
+        if part and part.Parent and isLootInstance(part) then
+            pcall(function()
+                CollectionService:AddTag(part, LOOT_TAG)
+            end)
         end
         if i % 1000 == 0 then task.wait() end
     end
@@ -1322,19 +1331,23 @@ local function cleanXray()
         pcall(function()
             if p and p.Parent then
                 p.Transparency = xrayOriginalParts[p] or 0
+                CollectionService:RemoveTag(p, XRAY_TAG)
             end
-            CollectionService:RemoveTag(p, XRAY_TAG)
         end)
     end
     table.clear(xrayOriginalParts)
 end
 
 local function applyXrayToInstance(v)
-    if v:IsA("BasePart") and not isCharacterPart(v) and v.Transparency ~= 1 then
+    if v and v.Parent and v:IsA("BasePart") and not isCharacterPart(v) and v.Transparency ~= 1 then
         if not CollectionService:HasTag(v, XRAY_TAG) then
             xrayOriginalParts[v] = v.Transparency
-            CollectionService:AddTag(v, XRAY_TAG)
-            v.Transparency = state.xrayIntensity
+            pcall(function()
+                CollectionService:AddTag(v, XRAY_TAG)
+            end)
+            if v and v.Parent then
+                v.Transparency = state.xrayIntensity
+            end
         end
     end
 end
@@ -1414,21 +1427,32 @@ local function applySelectionBoxToPart(part)
 end
 
 local function updateObjectScannerUI()
-    if not selectedPart or not selectedPart.Parent then
+    local part = selectedPart
+    if not part or not part.Parent then
         if selectedPartName then selectedPartName.Text = "Selected: None" end
         if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
         applySelectionBoxToPart(nil)
         return
     end
-    if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(selectedPart.Name, 1, 16) end
-    local ownerStr = getPartNetworkOwner(selectedPart)
-    local distStr = "Infinite"
-    if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-        local r = lp.Character.HumanoidRootPart
-        distStr = string.format("%d studs", math.floor((selectedPart.Position - r.Position).Magnitude))
+
+    local ok = pcall(function()
+        if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(part.Name, 1, 16) end
+        local ownerStr = getPartNetworkOwner(part)
+        local distStr = "Infinite"
+        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+            local r = lp.Character.HumanoidRootPart
+            distStr = string.format("%d studs", math.floor((part.Position - r.Position).Magnitude))
+        end
+        local anchoredStr = part.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
+        if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
+    end)
+
+    if not ok then
+        selectedPart = nil
+        if selectedPartName then selectedPartName.Text = "Selected: None" end
+        if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
+        applySelectionBoxToPart(nil)
     end
-    local anchoredStr = selectedPart.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
-    if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
 end
 
 searchByNameBtn.MouseButton1Click:Connect(function()
@@ -1502,8 +1526,9 @@ local function networkBring(part, targetCF)
 end
 
 bringBtn.MouseButton1Click:Connect(function()
-    if not selectedPart or not selectedPart.Parent then return end
-    if selectedPart.Anchored then
+    local part = selectedPart
+    if not part or not part.Parent then return end
+    if part.Anchored then
         if partInfoLabel then partInfoLabel.Text = "❌ Cannot bring anchored object!" end
         return
     end
@@ -1511,28 +1536,32 @@ bringBtn.MouseButton1Click:Connect(function()
 
     local root = lp.Character.HumanoidRootPart
     local targetCF = root.CFrame * CFrame.new(0, 0, -4)
-    networkBring(selectedPart, targetCF)
+    networkBring(part, targetCF)
     if partInfoLabel then partInfoLabel.Text = "✅ Bring executed!" end
     updateObjectScannerUI()
 end)
 
 tpToPartBtn.MouseButton1Click:Connect(function()
-    if not selectedPart or not selectedPart.Parent then return end
+    local part = selectedPart
+    if not part or not part.Parent then return end
     local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
-    root.CFrame = selectedPart.CFrame * CFrame.new(0, 3, 0)
+    pcall(function()
+        root.CFrame = part.CFrame * CFrame.new(0, 3, 0)
+    end)
     updateObjectScannerUI()
 end)
 
 bringAllBtn.MouseButton1Click:Connect(function()
-    if not selectedPart or not selectedPart.Parent then return end
-    if selectedPart.Anchored then
+    local part = selectedPart
+    if not part or not part.Parent then return end
+    if part.Anchored then
         if partInfoLabel then partInfoLabel.Text = "❌ Master object is anchored!" end
         return
     end
     if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
 
-    local name = selectedPart.Name
+    local name = part.Name
     local count = 0
     local targetCF = lp.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -5)
 
@@ -1608,25 +1637,42 @@ local physicsSandboxConn = RunService.Heartbeat:Connect(function()
     if not shouldUpdate then return end
     lastPosition = currentPos
 
-    if not selectedPart or not selectedPart.Parent or selectedPart.Anchored then return end
+    local selectedPhysicsPart = selectedPart
+    if not selectedPhysicsPart or not selectedPhysicsPart.Parent or selectedPhysicsPart.Anchored then return end
 
     if state.lockToMeEnabled then
-        local pOwner = getPartNetworkOwner(selectedPart)
-        if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
+        local part = selectedPhysicsPart
+        if not part or not part.Parent then return end
+        local pOwner = getPartNetworkOwner(part)
+        local canControl =
+            pOwner == "Client (You)" or
+            pOwner == "Server (Unassigned/Static)" or
+            string.find(pOwner, "Static")
+        if canControl then
             pcall(function()
-                selectedPart.CFrame = root.CFrame * CFrame.new(0, 1, -5)
-                selectedPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                selectedPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                if part and part.Parent then
+                    part.CFrame = root.CFrame * CFrame.new(0, 1, -5)
+                    part.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    part.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                end
             end)
         end
     end
 
     if state.freezeEnabled then
-        local pOwner = getPartNetworkOwner(selectedPart)
-        if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
+        local part = selectedPhysicsPart
+        if not part or not part.Parent then return end
+        local pOwner = getPartNetworkOwner(part)
+        local canControl =
+            pOwner == "Client (You)" or
+            pOwner == "Server (Unassigned/Static)" or
+            string.find(pOwner, "Static")
+        if canControl then
             pcall(function()
-                selectedPart.AssemblyLinearVelocity = Vector3.new(0, 0.08, 0)
-                selectedPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                if part and part.Parent then
+                    part.AssemblyLinearVelocity = Vector3.new(0, 0.08, 0)
+                    part.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                end
             end)
         end
     end
