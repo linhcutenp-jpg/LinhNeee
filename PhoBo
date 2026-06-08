@@ -14,7 +14,7 @@ local pg = lp:WaitForChild("PlayerGui")
 
 local Config = {
     PROTECT = true,
-    ALLOWED_USER_IDS = { 7651295755, 7361198469,  },
+    ALLOWED_USER_IDS = { 7651295755, 7361198469, },
     SECURITY_HEARTBEAT = 30,
     MAX_SAFE_JUMP_POWER = 180,
     MAX_SAFE_WALK_SPEED = 500,
