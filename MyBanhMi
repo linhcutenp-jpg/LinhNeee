@@ -1533,6 +1533,7 @@
     })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, resetAnchoredBtn)
 
+    -- Hàm cập nhật UI cho nút Anchored
     updateAnchoredButtonUI = function()
         if not selectedPart then
             if toggleAnchoredBtn then
@@ -1551,6 +1552,7 @@
         end
     end
 
+    -- Sự kiện cho nút Toggle Anchored
     toggleAnchoredBtn.MouseButton1Click:Connect(function()
         if not selectedPart or not selectedPart.Parent then
             if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
@@ -1571,6 +1573,7 @@
         updateObjectScannerUI()
     end)
 
+    -- Sự kiện cho nút Reset Anchored
     resetAnchoredBtn.MouseButton1Click:Connect(function()
         if not selectedPart or not selectedPart.Parent then
             if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
