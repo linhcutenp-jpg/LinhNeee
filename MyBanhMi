@@ -106,7 +106,7 @@
     local xrayOriginalParts = {}
     local overlapParams = OverlapParams.new()
 
-    -- FLY variables
+    -- FLY variables (chỉ giữ cần thiết, bỏ mobile)
     local flyLinearVelocity = nil
     local flyAlignOrientation = nil
     local flyAttachment = nil
@@ -114,28 +114,6 @@
     local cameraConn = nil
     local cachedHumanoid = nil
     local cachedRoot = nil
-    local isRebuilding = false
-    local rebuildRetryCount = 0
-    local resumeFailureCount = 0
-    local MAX_RESUME_FAILURE = 5
-    local rebuildToken = 0
-    local MAX_REBUILD_RETRY = 10
-    local lastCharacter = nil
-    local mobileVerticalInput = 0
-    local isAscendActive = false
-    local isDescendActive = false
-    local activeAscendTouch = nil
-    local activeDescendTouch = nil
-    local joystickConnections = {}
-    local joystickActive = false
-    local joystickDirection = Vector2.new(0,0)
-    local joystickFrame = nil
-    local joystickKnob = nil
-    local ascendBtn = nil
-    local descendBtn = nil
-    local activeTouchInput = nil
-    local flyDiedConn = nil
-    local flyCharAddedConn = nil
 
     -- Bring Part
     local selectedPart = nil
@@ -193,7 +171,7 @@
     end
 
     -- ====================================================================
-    -- UI CORE
+    -- UI CORE (GIỮ NGUYÊN)
     -- ====================================================================
     local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Global, DisplayOrder = 9999 }, pg)
     win = C("Frame", { Name = "Window", Size = Config.UI_WINDOW_SIZE, Position = UDim2.fromScale(0.08, 0.15), BackgroundColor3 = Config.THEMES.Dark.Primary, BorderSizePixel = 0, Active = true }, screen)
@@ -238,9 +216,7 @@
         return row
     end
 
-    -- ====================================================================
     -- PERSISTENT CONFIG
-    -- ====================================================================
     local function saveUIPreset()
         if writefile then
             local config = {
@@ -303,9 +279,7 @@
         end
     end
 
-    -- ====================================================================
     -- DRAG & DROP
-    -- ====================================================================
     header.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             draggingWindow = true
@@ -406,9 +380,7 @@
     end)
     registerConnection("DragEndConnection", dragEndConnection)
 
-    -- ====================================================================
     -- MAIN TAB UI
-    -- ====================================================================
     local themeRow = TabRow(1, "Theme Preset")
     local themeHolder = C("Frame", { Parent = themeRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
     C("UIGridLayout", { CellSize = UDim2.fromOffset(62,26), CellPadding = UDim2.fromOffset(4,4) }, themeHolder)
@@ -453,7 +425,7 @@
     end)
 
     -- ====================================================================
-    -- JUMP MODULE
+    -- JUMP MODULE (GIỮ NGUYÊN)
     -- ====================================================================
     local function detectJumpMethod(humanoid)
         return humanoid.UseJumpPower and "Power" or "Height"
@@ -707,7 +679,7 @@
     end)
 
     -- ====================================================================
-    -- NOCLIP
+    -- NOCLIP (GIỮ NGUYÊN)
     -- ====================================================================
     local noclipMasterRow = TabRow(1, "Noclip Core")
     noclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Noclip: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
@@ -789,7 +761,7 @@
     registerConnection("NoclipEngine", noclipConn)
 
     -- ====================================================================
-    -- ESP MODULE (TỐI ƯU)
+    -- ESP MODULE (GIỮ NGUYÊN)
     -- ====================================================================
     local espRowMaster = TabRow(2, "Player ESP Core")
     espBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,75,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
@@ -1063,7 +1035,7 @@
     registerConnection("ESPRenderLoop", espRenderConn)
 
     -- ====================================================================
-    -- LOOT ESP (OPTIMIZED)
+    -- LOOT ESP (GIỮ NGUYÊN)
     -- ====================================================================
     local function isLootInstance(instance)
         if not instance:IsA("BasePart") then return false end
@@ -1075,28 +1047,28 @@
     end
 
     local function createLootBillboard(part)
-    local bb = C("BillboardGui", {
-        Size = UDim2.fromOffset(110, 25),
-        StudsOffset = Vector3.new(0, 2, 0),
-        AlwaysOnTop = true,
-        Adornee = part
-    }, screen)
-    local label = C("TextLabel", {
-        Parent = bb,
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.GothamBold,
-        TextSize = 10,
-        TextColor3 = Color3.fromRGB(0, 230, 255),
-        TextStrokeTransparency = 0
-    })
-    return { billboard = bb, label = label, lastDist = nil }
-end
+        local bb = C("BillboardGui", {
+            Size = UDim2.fromOffset(110, 25),
+            StudsOffset = Vector3.new(0, 2, 0),
+            AlwaysOnTop = true,
+            Adornee = part
+        }, screen)
+        local label = C("TextLabel", {
+            Parent = bb,
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.GothamBold,
+            TextSize = 10,
+            TextColor3 = Color3.fromRGB(0, 230, 255),
+            TextStrokeTransparency = 0
+        })
+        return { billboard = bb, label = label, lastDist = nil }
+    end
 
-local function addLootToRegistry(part)
-    if lootRegistry[part] then return end
-    lootRegistry[part] = createLootBillboard(part)
-end
+    local function addLootToRegistry(part)
+        if lootRegistry[part] then return end
+        lootRegistry[part] = createLootBillboard(part)
+    end
 
     local function removeLootFromRegistry(part)
         local cache = lootRegistry[part]
@@ -1233,7 +1205,7 @@ end
     registerConnection("PlayerRemovingESP", pRemovingConn)
 
     -- ====================================================================
-    -- FLY SYSTEM V21 - ABSOLUTE FINAL
+    -- FLY SYSTEM (CHỈ PC, BỎ HOÀN TOÀN MOBILE)
     -- ====================================================================
     local flyRowSys = TabRow(3, "Premium Flight Engine")
     flyBtn = C("TextButton", { Parent = flyRowSys, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "FLY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
@@ -1255,484 +1227,182 @@ end
         end
     end)
 
-local RUN_SERVICE_PHYSICS = RunService.Heartbeat
-local RUN_SERVICE_CAMERA = RunService.RenderStepped
-local DEFAULT_RESPONSIVENESS = 55
+    -- FLY CORE (Chỉ PC, không mobile)
+    local RUN_SERVICE_PHYSICS = RunService.Heartbeat
+    local RUN_SERVICE_CAMERA = RunService.RenderStepped
+    local DEFAULT_RESPONSIVENESS = 55
 
--- Biến toàn cục cho fly
-flyLinearVelocity = nil
-flyAlignOrientation = nil
-flyAttachment = nil
-flyConn = nil
-cameraConn = nil
-cachedHumanoid = nil
-cachedRoot = nil
-isRebuilding = false
-rebuildRetryCount = 0
-resumeFailureCount = 0
-rebuildToken = 0
-mobileVerticalInput = 0
-isAscendActive = false
-isDescendActive = false
-activeAscendTouch = nil
-activeDescendTouch = nil
-joystickConnections = {}
-joystickActive = false
-joystickDirection = Vector2.new(0,0)
-joystickFrame = nil
-joystickKnob = nil
-ascendBtn = nil
-descendBtn = nil
-activeTouchInput = nil
-flyDiedConn = nil
-flyCharAddedConn = nil
-isResuming = false
-
-local MAX_RESUME_FAILURE = 5
-local MAX_REBUILD_RETRY = 10
-
-local function getCameraRotationFly()
-    local cam = Workspace.CurrentCamera
-    if not cam then return CFrame.identity end
-    local cf = cam.CFrame
-    return CFrame.fromMatrix(Vector3.new(0,0,0), cf.RightVector, cf.UpVector, -cf.LookVector)
-end
-
-local function setOrientationEnabledFly(enabled)
-    if flyAlignOrientation then pcall(function() flyAlignOrientation.Enabled = enabled end) end
-end
-
-local function invalidateRebuildsFly()
-    rebuildToken = rebuildToken + 1
-    isRebuilding = false
-    rebuildRetryCount = 0
-end
-
-local function resetFailureCounterFly()
-    resumeFailureCount = 0
-    lastCharacter = lp.Character
-end
-
-local function isHumanoidFlyValid()
-    if not cachedHumanoid then return false end
-    if cachedHumanoid.Parent ~= lp.Character then return false end
-    if cachedHumanoid.Health <= 0 then return false end
-    return cachedHumanoid:GetState() ~= Enum.HumanoidStateType.Dead
-end
-
-local function isRootFlyValid()
-    if not cachedRoot then return false end
-    return cachedRoot.Parent == lp.Character
-end
-
-local function refreshFlyCaches()
-    if not lp.Character then
-        cachedHumanoid = nil
-        cachedRoot = nil
-        return
+    local function getCameraRotationFly()
+        local cam = Workspace.CurrentCamera
+        if not cam then return CFrame.identity end
+        local cf = cam.CFrame
+        return CFrame.fromMatrix(Vector3.new(0,0,0), cf.RightVector, cf.UpVector, -cf.LookVector)
     end
-    cachedHumanoid = lp.Character:FindFirstChildOfClass("Humanoid")
-    cachedRoot = lp.Character:FindFirstChild("HumanoidRootPart")
-end
 
-local function setupFlyCharacter(char)
-    if not char then return end
-    refreshFlyCaches()
-    if cachedHumanoid then
-        if flyDiedConn then pcall(function() flyDiedConn:Disconnect() end) end
-        flyDiedConn = cachedHumanoid.Died:Connect(function()
-            if state.flying then pauseFlyState() scheduleRebuildFly() end
-        end)
-        registerConnection("FlyDiedConn", flyDiedConn)
+    local function setOrientationEnabledFly(enabled)
+        if flyAlignOrientation then pcall(function() flyAlignOrientation.Enabled = enabled end) end
     end
-end
 
-local function updateMobileVerticalInputFly()
-    mobileVerticalInput = (isAscendActive and 1) or (isDescendActive and -1) or 0
-end
-
-local function onAscendStartFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch and not activeAscendTouch then
-        activeAscendTouch = input
-        isAscendActive = true
-        updateMobileVerticalInputFly()
-    end
-end
-
-local function onAscendEndFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch and activeAscendTouch == input then
-        activeAscendTouch = nil
-        isAscendActive = false
-        updateMobileVerticalInputFly()
-    end
-end
-
-local function onDescendStartFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch and not activeDescendTouch then
-        activeDescendTouch = input
-        isDescendActive = true
-        updateMobileVerticalInputFly()
-    end
-end
-
-local function onDescendEndFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch and activeDescendTouch == input then
-        activeDescendTouch = nil
-        isDescendActive = false
-        updateMobileVerticalInputFly()
-    end
-end
-
-local function onTouchCancelFly(input)
-    if input == activeAscendTouch then activeAscendTouch = nil isAscendActive = false updateMobileVerticalInputFly() end
-    if input == activeDescendTouch then activeDescendTouch = nil isDescendActive = false updateMobileVerticalInputFly() end
-    if input == activeTouchInput then resetJoystickFly() end
-end
-
-local function resetJoystickFly()
-    joystickActive = false
-    joystickDirection = Vector2.new(0,0)
-    if joystickKnob then joystickKnob.Position = UDim2.new(0.5, -20, 0.5, -20) end
-    activeTouchInput = nil
-end
-
-local function getFlatMoveDirection()
-    local moveDir = Vector3.new(0,0,0)
-    local cam = Workspace.CurrentCamera
-    if not cam then
-        if cachedRoot then
-            moveDir = cachedRoot.CFrame.LookVector
-            moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-            if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
-        end
-        return moveDir
-    end
-    local camCF = cam.CFrame
-    if UIS.TouchEnabled and joystickActive then
-        local forward = camCF.LookVector
-        local right = camCF.RightVector
-        moveDir = (forward * joystickDirection.Y) + (right * joystickDirection.X)
-        moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-        if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
-    else
-        if UIS:IsKeyDown(Enum.KeyCode.W) then local f = camCF.LookVector moveDir = moveDir + Vector3.new(f.X, 0, f.Z) end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then local f = camCF.LookVector moveDir = moveDir - Vector3.new(f.X, 0, f.Z) end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then local r = camCF.RightVector moveDir = moveDir - Vector3.new(r.X, 0, r.Z) end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then local r = camCF.RightVector moveDir = moveDir + Vector3.new(r.X, 0, r.Z) end
-        if moveDir.Magnitude < 0.01 and cachedRoot then
-            local rootCF = cachedRoot.CFrame
-            if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + rootCF.LookVector end
-            if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - rootCF.LookVector end
-            if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - rootCF.RightVector end
-            if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + rootCF.RightVector end
-            moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-        end
-        if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
-    end
-    return moveDir
-end
-
-local function createMobileControlsFly()
-    if not UIS.TouchEnabled then return end
-    local btnSize = 50
-    ascendBtn = Instance.new("TextButton")
-    ascendBtn.Parent = screen
-    ascendBtn.Size = UDim2.fromOffset(btnSize, btnSize)
-    ascendBtn.Position = UDim2.fromScale(0.85, 0.7)
-    ascendBtn.BackgroundColor3 = Color3.fromRGB(70,70,90)
-    ascendBtn.BackgroundTransparency = 0.3
-    ascendBtn.Text = "▲"
-    ascendBtn.TextColor3 = Color3.fromRGB(255,255,255)
-    ascendBtn.Font = Enum.Font.GothamBold
-    ascendBtn.TextSize = 20
-    ascendBtn.Visible = false
-    ascendBtn.ZIndex = 1000
-    Instance.new("UICorner", ascendBtn).CornerRadius = UDim.new(1,0)
-    
-    descendBtn = Instance.new("TextButton")
-    descendBtn.Parent = screen
-    descendBtn.Size = UDim2.fromOffset(btnSize, btnSize)
-    descendBtn.Position = UDim2.fromScale(0.85, 0.8)
-    descendBtn.BackgroundColor3 = Color3.fromRGB(70,70,90)
-    descendBtn.BackgroundTransparency = 0.3
-    descendBtn.Text = "▼"
-    descendBtn.TextColor3 = Color3.fromRGB(255,255,255)
-    descendBtn.Font = Enum.Font.GothamBold
-    descendBtn.TextSize = 20
-    descendBtn.Visible = false
-    descendBtn.ZIndex = 1000
-    Instance.new("UICorner", descendBtn).CornerRadius = UDim.new(1,0)
-    
-    table.insert(joystickConnections, ascendBtn.InputBegan:Connect(onAscendStartFly))
-    table.insert(joystickConnections, ascendBtn.InputEnded:Connect(onAscendEndFly))
-    table.insert(joystickConnections, descendBtn.InputBegan:Connect(onDescendStartFly))
-    table.insert(joystickConnections, descendBtn.InputEnded:Connect(onDescendEndFly))
-end
-
-local function createMobileJoystickFly()
-    if not UIS.TouchEnabled then return end
-    joystickFrame = Instance.new("Frame")
-    joystickFrame.Parent = screen
-    joystickFrame.Size = UDim2.fromOffset(120, 120)
-    joystickFrame.Position = UDim2.fromScale(0.12, 0.85)
-    joystickFrame.BackgroundColor3 = Color3.fromRGB(30,30,40)
-    joystickFrame.BackgroundTransparency = 0.5
-    joystickFrame.Visible = false
-    joystickFrame.ZIndex = 1000
-    Instance.new("UICorner", joystickFrame).CornerRadius = UDim.new(1,0)
-    
-    joystickKnob = Instance.new("Frame")
-    joystickKnob.Parent = joystickFrame
-    joystickKnob.Size = UDim2.fromOffset(40, 40)
-    joystickKnob.Position = UDim2.new(0.5, -20, 0.5, -20)
-    joystickKnob.BackgroundColor3 = Color3.fromRGB(200,200,220)
-    joystickKnob.BackgroundTransparency = 0.3
-    joystickKnob.ZIndex = 1001
-    Instance.new("UICorner", joystickKnob).CornerRadius = UDim.new(1,0)
-    
-    local center = Vector2.new(60, 60)
-    local radius = 50
-    local function getFramePos() return joystickFrame and joystickFrame.AbsolutePosition or Vector2.new(0,0) end
-    local function isTouchInJoystick(touch) return (touch.Position - getFramePos() - center).Magnitude <= radius end
-    local function updateJoystickFromTouch(touch)
-        local localPos = touch.Position - getFramePos()
-        local relative = localPos - center
-        local magnitude = math.min(relative.Magnitude, radius)
-        if magnitude > 0 then
-            local dir = relative.Unit
-            joystickDirection = dir * (magnitude / radius)
-            joystickKnob.Position = UDim2.new(0.5, dir.X * magnitude, 0.5, dir.Y * magnitude)
-        else
-            joystickDirection = Vector2.new(0,0)
-            joystickKnob.Position = UDim2.new(0.5, -20, 0.5, -20)
-        end
-    end
-    table.insert(joystickConnections, UIS.TouchStarted:Connect(function(touch, processed)
-        if processed or not joystickFrame.Visible or activeTouchInput then return end
-        if isTouchInJoystick(touch) then
-            activeTouchInput = touch
-            joystickActive = true
-            updateJoystickFromTouch(touch)
-        end
-    end))
-    table.insert(joystickConnections, UIS.TouchMoved:Connect(function(touch)
-        if not joystickActive or touch ~= activeTouchInput then return end
-        updateJoystickFromTouch(touch)
-    end))
-    table.insert(joystickConnections, UIS.TouchEnded:Connect(function(touch)
-        if not joystickActive or touch ~= activeTouchInput then return end
-        resetJoystickFly()
-    end))
-    if UIS.TouchCancelled then
-        table.insert(joystickConnections, UIS.TouchCancelled:Connect(onTouchCancelFly))
-    end
-end
-
-local function cleanupJoystickFly()
-    for _, conn in ipairs(joystickConnections) do pcall(function() conn:Disconnect() end) end
-    table.clear(joystickConnections)
-    activeTouchInput = nil
-    activeAscendTouch = nil
-    activeDescendTouch = nil
-    isAscendActive = false
-    isDescendActive = false
-    mobileVerticalInput = 0
-    if ascendBtn then pcall(function() ascendBtn:Destroy() end); ascendBtn = nil end
-    if descendBtn then pcall(function() descendBtn:Destroy() end); descendBtn = nil end
-    if joystickFrame then pcall(function() joystickFrame:Destroy() end); joystickFrame = nil; joystickKnob = nil end
-end
-
-local function ensureFlyComponents(root)
-    if not root then return false end
-    local valid = flyAttachment and flyAttachment.Parent == root and flyLinearVelocity and flyLinearVelocity.Parent == root and flyAlignOrientation and flyAlignOrientation.Parent == root
-    if valid then return true end
-    local oldAtt, oldLV, oldAO = flyAttachment, flyLinearVelocity, flyAlignOrientation
-    flyAttachment = Instance.new("Attachment")
-    flyAttachment.Name = "LinhFlyAttachment"
-    flyLinearVelocity = Instance.new("LinearVelocity")
-    flyLinearVelocity.Name = "LinhFlyLinearVelocity"
-    flyLinearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-    flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0)
-    flyLinearVelocity.Attachment0 = flyAttachment
-    flyLinearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
-    flyAlignOrientation = Instance.new("AlignOrientation")
-    flyAlignOrientation.Name = "LinhFlyAlignOrientation"
-    flyAlignOrientation.RigidityEnabled = true
-    flyAlignOrientation.Responsiveness = DEFAULT_RESPONSIVENESS
-    flyAlignOrientation.Attachment0 = flyAttachment
-    flyAttachment.Parent = root
-    flyLinearVelocity.Parent = root
-    flyAlignOrientation.Parent = root
-    if oldAtt then pcall(function() oldAtt:Destroy() end) end
-    if oldLV then pcall(function() oldLV:Destroy() end) end
-    if oldAO then pcall(function() oldAO:Destroy() end) end
-    return true
-end
-
-local function pauseFlyState()
-    pcall(function()
-        if flyLinearVelocity then flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0) end
-        setOrientationEnabledFly(false)
-        if flyConn then flyConn:Disconnect(); flyConn = nil end
-        if cameraConn then cameraConn:Disconnect(); cameraConn = nil end
-    end)
-    clearConnection("FlightEngineLoop")
-    clearConnection("CameraOrientationLoop")
-end
-
-local function resumeFlyState()
-    if isResuming then return false end
-    if not state.flying or not lp.Character then
-        resumeFailureCount = 0
-        return false
-    end
-    isResuming = true
-    local ok = pcall(function()
-        refreshFlyCaches()
-        if not cachedHumanoid or not cachedRoot then error("No humanoid/root") end
-        if not isHumanoidFlyValid() then error("Humanoid invalid") end
-        if not ensureFlyComponents(cachedRoot) then error("Failed components") end
-        setOrientationEnabledFly(true)
-        if UIS.TouchEnabled and not joystickFrame then
-            createMobileJoystickFly()
-            createMobileControlsFly()
-        end
-        if flyConn then flyConn:Disconnect() end
-        if cameraConn then cameraConn:Disconnect() end
-        flyConn = RUN_SERVICE_PHYSICS:Connect(function()
-            if not state.flying or not lp.Character then pauseFlyState(); return end
-            if not isRootFlyValid() then pauseFlyState(); scheduleRebuildFly(); return end
-            if not isHumanoidFlyValid() then refreshFlyCaches()
-                if not isHumanoidFlyValid() then pauseFlyState(); scheduleRebuildFly(); return end
-            end
-            if flyAttachment and flyAttachment.Parent ~= cachedRoot then ensureFlyComponents(cachedRoot) end
-            local moveDir = getFlatMoveDirection()
-            local finalVel = moveDir * state.flySpeed
-            if UIS.TouchEnabled and mobileVerticalInput ~= 0 then finalVel = finalVel + Vector3.new(0, mobileVerticalInput * state.flySpeed, 0) end
-            if not UIS.TouchEnabled then
-                if UIS:IsKeyDown(Enum.KeyCode.Space) then finalVel = finalVel + Vector3.new(0, state.flySpeed, 0) end
-                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then finalVel = finalVel - Vector3.new(0, state.flySpeed, 0) end
-            end
-            if flyLinearVelocity then flyLinearVelocity.VectorVelocity = finalVel end
-        end)
-        cameraConn = RUN_SERVICE_CAMERA:Connect(function()
-            if not state.flying or not lp.Character then return end
-            if flyAlignOrientation and flyAlignOrientation.Parent then flyAlignOrientation.CFrame = getCameraRotationFly() end
-        end)
-        registerConnection("FlightEngineLoop", flyConn)
-        registerConnection("CameraOrientationLoop", cameraConn)
-    end)
-    if not ok then
-        resumeFailureCount = resumeFailureCount + 1
-        pauseFlyState()
-    else
-        resumeFailureCount = 0
-    end
-    isResuming = false
-    return ok
-end
-
-local function scheduleRebuildFly()
-    if isRebuilding then return end
-    isRebuilding = true
-    rebuildRetryCount = 0
-    local myToken = rebuildToken
-    local function attempt()
-        if not state.flying then isRebuilding = false; return end
-        if myToken ~= rebuildToken then isRebuilding = false; return end
-        if lp.Character ~= lastCharacter then resetFailureCounterFly() end
-        if resumeFailureCount >= MAX_RESUME_FAILURE then
-            isRebuilding = false
-            if state.flying then pauseFlyState() end
+    local function refreshFlyCaches()
+        if not lp.Character then
+            cachedHumanoid = nil
+            cachedRoot = nil
             return
         end
-        refreshFlyCaches()
-        if lp.Character and cachedRoot and cachedHumanoid and cachedHumanoid.Health > 0 then
-            if resumeFlyState() then
-                isRebuilding = false
-                rebuildRetryCount = 0
-            else
-                task.delay(0.5, function() if state.flying and resumeFailureCount < MAX_RESUME_FAILURE then scheduleRebuildFly() end end)
-            end
-        elseif rebuildRetryCount < MAX_REBUILD_RETRY then
-            rebuildRetryCount = rebuildRetryCount + 1
-            task.delay(0.5, attempt)
-        else
-            isRebuilding = false
-            if state.flying then pauseFlyState() end
-        end
+        cachedHumanoid = lp.Character:FindFirstChildOfClass("Humanoid")
+        cachedRoot = lp.Character:FindFirstChild("HumanoidRootPart")
     end
-    task.defer(attempt)
-end
 
-local function onCharacterAddedFly(char)
-    invalidateRebuildsFly()
-    resetFailureCounterFly()
-    setupFlyCharacter(char)
-    if state.flying then resumeFlyState() end
-end
+    local function ensureFlyComponents(root)
+        if not root then return false end
+        local valid = flyAttachment and flyAttachment.Parent == root and
+                      flyLinearVelocity and flyLinearVelocity.Parent == root and
+                      flyAlignOrientation and flyAlignOrientation.Parent == root
+        if valid then return true end
+        
+        local oldAtt, oldLV, oldAO = flyAttachment, flyLinearVelocity, flyAlignOrientation
+        
+        flyAttachment = Instance.new("Attachment")
+        flyAttachment.Name = "LinhFlyAttachment"
+        
+        flyLinearVelocity = Instance.new("LinearVelocity")
+        flyLinearVelocity.Name = "LinhFlyLinearVelocity"
+        flyLinearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+        flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0)
+        flyLinearVelocity.Attachment0 = flyAttachment
+        flyLinearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+        
+        flyAlignOrientation = Instance.new("AlignOrientation")
+        flyAlignOrientation.Name = "LinhFlyAlignOrientation"
+        flyAlignOrientation.RigidityEnabled = true
+        flyAlignOrientation.Responsiveness = DEFAULT_RESPONSIVENESS
+        flyAlignOrientation.Attachment0 = flyAttachment
+        
+        flyAttachment.Parent = root
+        flyLinearVelocity.Parent = root
+        flyAlignOrientation.Parent = root
+        
+        if oldAtt then pcall(function() oldAtt:Destroy() end) end
+        if oldLV then pcall(function() oldLV:Destroy() end) end
+        if oldAO then pcall(function() oldAO:Destroy() end) end
+        return true
+    end
 
-local function toggleFlyState()
-    state.flying = not state.flying
-    flyBtn.Text = state.flying and "FLY: ON" or "FLY: OFF"
-    TweenService:Create(flyBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.flying and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-    if state.flying then
-        invalidateRebuildsFly()
-        resetFailureCounterFly()
-        resumeFlyState()
-        if UIS.TouchEnabled then
-            if joystickFrame then joystickFrame.Visible = true end
-            if ascendBtn then ascendBtn.Visible = true end
-            if descendBtn then descendBtn.Visible = true end
-        end
-    else
-        invalidateRebuildsFly()
+    local function pauseFlyState()
+        pcall(function()
+            if flyLinearVelocity then flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0) end
+            setOrientationEnabledFly(false)
+            if flyConn then flyConn:Disconnect(); flyConn = nil end
+            if cameraConn then cameraConn:Disconnect(); cameraConn = nil end
+        end)
+        clearConnection("FlightEngineLoop")
+        clearConnection("CameraOrientationLoop")
+    end
+
+    local function resumeFlyState()
+        if not state.flying or not lp.Character then return false end
+        
+        local ok = pcall(function()
+            refreshFlyCaches()
+            if not cachedHumanoid or not cachedRoot then error("No humanoid/root") end
+            if not ensureFlyComponents(cachedRoot) then error("Failed components") end
+            setOrientationEnabledFly(true)
+            
+            if flyConn then flyConn:Disconnect() end
+            if cameraConn then cameraConn:Disconnect() end
+            
+            flyConn = RUN_SERVICE_PHYSICS:Connect(function()
+                if not state.flying or not lp.Character then
+                    pauseFlyState()
+                    return
+                end
+                if not cachedRoot or cachedRoot.Parent ~= lp.Character then
+                    refreshFlyCaches()
+                    if not cachedRoot then pauseFlyState(); return end
+                end
+                if flyAttachment and flyAttachment.Parent ~= cachedRoot then
+                    ensureFlyComponents(cachedRoot)
+                end
+                
+                local cam = Workspace.CurrentCamera
+                if not cam then return end
+                local camCF = cam.CFrame
+                local moveDir = Vector3.new(0,0,0)
+                
+                if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camCF.LookVector end
+                if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camCF.LookVector end
+                if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camCF.RightVector end
+                if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camCF.RightVector end
+                if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
+                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
+                
+                if moveDir.Magnitude > 0 then
+                    moveDir = moveDir.Unit * state.flySpeed
+                end
+                
+                if flyLinearVelocity then
+                    flyLinearVelocity.VectorVelocity = moveDir
+                end
+            end)
+            
+            cameraConn = RUN_SERVICE_CAMERA:Connect(function()
+                if not state.flying or not lp.Character then return end
+                if flyAlignOrientation and flyAlignOrientation.Parent then
+                    flyAlignOrientation.CFrame = getCameraRotationFly()
+                end
+            end)
+            
+            registerConnection("FlightEngineLoop", flyConn)
+            registerConnection("CameraOrientationLoop", cameraConn)
+        end)
+        return ok
+    end
+
+    local function stopFly()
+        state.flying = false
         pauseFlyState()
-        if UIS.TouchEnabled then
-            if joystickFrame then joystickFrame.Visible = false end
-            if ascendBtn then ascendBtn.Visible = false end
-            if descendBtn then descendBtn.Visible = false end
-            resetJoystickFly()
-            isAscendActive = false
-            isDescendActive = false
-            mobileVerticalInput = 0
-            activeAscendTouch = nil
-            activeDescendTouch = nil
-        end
         if lp.Character then
             local root = lp.Character:FindFirstChild("HumanoidRootPart")
             if root then pcall(function() root.AssemblyLinearVelocity = Vector3.new(0,0,0) end) end
         end
     end
-end
 
-flyBtn.MouseButton1Click:Connect(toggleFlyState)
-flyMethodBtn.MouseButton1Click:Connect(function()
-    if partInfoLabel then partInfoLabel.Text = "⚠️ LinearVel engine only (most stable)"
-    task.delay(2, function()
-        if partInfoLabel and partInfoLabel.Text == "⚠️ LinearVel engine only (most stable)" then
-            partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Ready"
+    local function toggleFlyState()
+        state.flying = not state.flying
+        flyBtn.Text = state.flying and "FLY: ON" or "FLY: OFF"
+        TweenService:Create(flyBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.flying and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
+        if state.flying then
+            resumeFlyState()
+        else
+            stopFly()
         end
+    end
+
+    flyBtn.MouseButton1Click:Connect(toggleFlyState)
+
+    flyMethodBtn.MouseButton1Click:Connect(function()
+        if partInfoLabel then
+            partInfoLabel.Text = "⚠️ LinearVel engine only (most stable)"
+        end
+        task.delay(2, function()
+            if partInfoLabel and partInfoLabel.Text == "⚠️ LinearVel engine only (most stable)" then
+                partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Ready"
+            end
+        end)
     end)
-end)
 
-CAS:BindAction("FlyActionKey", function(_, actionState)
-    if UIS:GetFocusedTextBox() then return end
-    if actionState == Enum.UserInputState.Begin then toggleFlyState() end
-end, false, Enum.KeyCode.B)
+    CAS:BindAction("FlyActionKey", function(_, actionState)
+        if UIS:GetFocusedTextBox() then return end
+        if actionState == Enum.UserInputState.Begin then toggleFlyState() end
+    end, false, Enum.KeyCode.B)
 
-if flyCharAddedConn then pcall(function() flyCharAddedConn:Disconnect() end) end
-flyCharAddedConn = lp.CharacterAdded:Connect(onCharacterAddedFly)
-registerConnection("FlyCharacterAdded", flyCharAddedConn)
-
-if lp.Character then
-    setupFlyCharacter(lp.Character)
-    resetFailureCounterFly()
-    if state.flying then resumeFlyState() end
-end
+    if lp.Character then
+        refreshFlyCaches()
+        if state.flying then resumeFlyState() end
+    end
 
     -- ====================================================================
-    -- XRAY SYSTEM
+    -- XRAY SYSTEM (GIỮ NGUYÊN)
     -- ====================================================================
     local xrayRow = TabRow(3, "Environment XRay")
     xrayBtnUI = C("TextButton", { Parent = xrayRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "XRAY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
@@ -1795,7 +1465,7 @@ end
     xrayBtnUI.MouseButton1Click:Connect(toggleXrayState)
 
     -- ====================================================================
-    -- BRING PART & OBJECT SCANNER WITH ANCHORED TOGGLE
+    -- BRING PART & OBJECT SCANNER (GIỮ NGUYÊN)
     -- ====================================================================
     local scannerTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
     C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Premium Object Scanner & Bring Tool ---", TextColor3 = Color3.fromRGB(150,130,220), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, scannerTitleRow)
@@ -2070,7 +1740,7 @@ end
     end)
 
     -- ====================================================================
-    -- PHYSICS SANDBOX
+    -- PHYSICS SANDBOX (GIỮ NGUYÊN)
     -- ====================================================================
     local sandboxTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
     C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Physics Sandbox Environment ---", TextColor3 = Color3.fromRGB(210,120,40), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, sandboxTitleRow)
@@ -2148,7 +1818,7 @@ end
     registerConnection("PhysicsSandboxCore", physicsSandboxConn)
 
     -- ====================================================================
-    -- INITIALIZATION
+    -- INITIALIZATION (GIỮ NGUYÊN)
     -- ====================================================================
     local function setupCharacterSignals(char)
         clearConnection("CharDescendantAdded")
@@ -2199,7 +1869,7 @@ end
     pcall(loadUIPreset)
 
     -- ====================================================================
-    -- SECURITY: PERIODIC VERIFICATION (đã sửa thiếu end)
+    -- SECURITY (GIỮ NGUYÊN)
     -- ====================================================================
     local function periodicVerification()
         while state.scriptEnabled do
@@ -2220,7 +1890,7 @@ end
     task.spawn(periodicVerification)
 
     -- ====================================================================
-    -- MENU TOGGLE
+    -- MENU TOGGLE (GIỮ NGUYÊN)
     -- ====================================================================
     CAS:BindAction("ToggleMenu_RShift", function(_, actionState)
         if UIS:GetFocusedTextBox() then return end
@@ -2244,39 +1914,34 @@ end
     end)
 
     -- ====================================================================
-    -- CLEANUP
+    -- CLEANUP (GIỮ NGUYÊN)
     -- ====================================================================
     cleanupAll = function()
-    print("[System] Unloading...")
-    state.scriptEnabled = false
-    state.lootPipelineActive = false
+        print("[System] Unloading...")
+        state.scriptEnabled = false
+        state.lootPipelineActive = false
 
-    if state.xray then toggleXrayState() end
-    clearLootEsp()
+        if state.xray then toggleXrayState() end
+        clearLootEsp()
 
-    for _, p in ipairs(Players:GetPlayers()) do
-        removeESP(p, true)
+        for _, p in ipairs(Players:GetPlayers()) do
+            removeESP(p, true)
+        end
+        stopFly()
+        
+        if flyLinearVelocity then pcall(function() flyLinearVelocity:Destroy() end); flyLinearVelocity = nil end
+        if flyAlignOrientation then pcall(function() flyAlignOrientation:Destroy() end); flyAlignOrientation = nil end
+        if flyAttachment then pcall(function() flyAttachment:Destroy() end); flyAttachment = nil end
+
+        for id, conn in pairs(ConnectionRegistry) do
+            if conn then pcall(function() conn:Disconnect() end) end
+        end
+        table.clear(ConnectionRegistry)
+
+        if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end) end
+        if screen then pcall(function() screen:Destroy() end) end
+        print("[System] Cleanup complete.")
     end
-    pauseFlyState()
-    
-    if flyLinearVelocity then pcall(function() flyLinearVelocity:Destroy() end); flyLinearVelocity = nil end
-    if flyAlignOrientation then pcall(function() flyAlignOrientation:Destroy() end); flyAlignOrientation = nil end
-    if flyAttachment then pcall(function() flyAttachment:Destroy() end); flyAttachment = nil end
-
-    for id, conn in pairs(ConnectionRegistry) do
-        if conn then pcall(function() conn:Disconnect() end) end
-    end
-    table.clear(ConnectionRegistry)
-    
-    -- SỬA DÒNG NÀY: kiểm tra hàm tồn tại
-    if type(cleanupJoystickFly) == "function" then
-        cleanupJoystickFly()
-    end
-
-    if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end) end
-    if screen then pcall(function() screen:Destroy() end) end
-    print("[System] Cleanup complete.")
-end
 
     _G.UnloadLinhScript = cleanupAll
 
