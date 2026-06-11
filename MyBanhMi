@@ -1470,7 +1470,6 @@
 
     xrayBtnUI.MouseButton1Click:Connect(toggleXrayState)
 
-    -- BRING PART UI
     local scannerTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
     C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Premium Object Scanner & Bring Tool ---", TextColor3 = Color3.fromRGB(150,130,220), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, scannerTitleRow)
 
@@ -1492,7 +1491,7 @@
     partInfoLabel = C("TextLabel", { Parent = infoRowBring, Size = UDim2.new(1,0,1,0), BackgroundColor3 = Color3.fromRGB(25,25,30), Text = "Owner: N/A\nDistance: N/A | Status: Ready", TextColor3 = Color3.fromRGB(160,160,170), Font = Enum.Font.Gotham, TextSize = 11, TextYAlignment = Enum.TextYAlignment.Center })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, partInfoLabel)
 
-    local bringActionsRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,72), BackgroundTransparency = 1 })
+    local bringActionsRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,36), BackgroundTransparency = 1 })
     C("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,6), SortOrder = Enum.SortOrder.LayoutOrder }, bringActionsRow)
 
     bringBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 1, Size = UDim2.new(0,95,0,32), BackgroundColor3 = Color3.fromRGB(180,70,70), Text = "🧲 Bring", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
@@ -1513,42 +1512,15 @@
     resetAnchoredBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 6, Size = UDim2.new(0,100,0,32), BackgroundColor3 = Color3.fromRGB(100,80,60), Text = "🔄 Reset", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, resetAnchoredBtn)
 
-    toggleAnchoredBtn = C("TextButton", {
-        Parent = bringActionsRow,
-        LayoutOrder = 5,
-        Size = UDim2.new(0, 120, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(80, 80, 100),
-        BorderSizePixel = 0,
-        Text = "🔓 Anchored: OFF",
-        TextColor3 = Color3.fromRGB(235,235,240),
-        Font = Enum.Font.GothamBold,
-        TextSize = 11
-    })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, toggleAnchoredBtn)
-
-    resetAnchoredBtn = C("TextButton", {
-        Parent = bringActionsRow,
-        LayoutOrder = 6,
-        Size = UDim2.new(0, 100, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(100, 80, 60),
-        BorderSizePixel = 0,
-        Text = "🔄 Reset Anchored",
-        TextColor3 = Color3.fromRGB(235,235,240),
-        Font = Enum.Font.GothamBold,
-        TextSize = 11
-    })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, resetAnchoredBtn)
-
-    -- Hàm cập nhật UI cho nút Anchored
+    -- ========== ĐỊNH NGHĨA HÀM updateAnchoredButtonUI (TRƯỚC KHI DÙNG) ==========
+    local updateAnchoredButtonUI
     updateAnchoredButtonUI = function()
-        if not selectedPart then
-            if toggleAnchoredBtn then
-                toggleAnchoredBtn.Text = "🔓 Anchored: N/A"
-                toggleAnchoredBtn.BackgroundColor3 = Color3.fromRGB(80,80,100)
-            end
+        if not toggleAnchoredBtn then return end
+        if not selectedPart or not selectedPart.Parent then
+            toggleAnchoredBtn.Text = "🔓 Anchored: N/A"
+            toggleAnchoredBtn.BackgroundColor3 = Color3.fromRGB(80,80,100)
             return
         end
-        
         if selectedPart.Anchored then
             toggleAnchoredBtn.Text = "🔒 Anchored: ON"
             toggleAnchoredBtn.BackgroundColor3 = Color3.fromRGB(220,100,100)
@@ -1558,64 +1530,74 @@
         end
     end
 
-    -- Sự kiện cho nút Toggle Anchored
+    -- ========== ĐỊNH NGHĨA HÀM updateObjectScannerUI (TRƯỚC KHI DÙNG) ==========
+    local updateObjectScannerUI
+    updateObjectScannerUI = function()
+        if not selectedPart or not selectedPart.Parent then
+            if selectedPartName then selectedPartName.Text = "Selected: None" end
+            if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
+            if applySelectionBoxToPart then applySelectionBoxToPart(nil) end
+            if updateAnchoredButtonUI then updateAnchoredButtonUI() end
+            return
+        end
+        if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(selectedPart.Name, 1, 16) end
+        local ownerStr = "Unknown"
+        if getPartNetworkOwner then ownerStr = getPartNetworkOwner(selectedPart) end
+        local distStr = "Infinite"
+        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+            local r = lp.Character.HumanoidRootPart
+            distStr = string.format("%d studs", math.floor((selectedPart.Position - r.Position).Magnitude))
+        end
+        local anchoredStr = selectedPart.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
+        if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
+        if updateAnchoredButtonUI then updateAnchoredButtonUI() end
+    end
+
+    -- ========== SỰ KIỆN CHO NÚT (SAU KHI CÓ HÀM) ==========
     toggleAnchoredBtn.MouseButton1Click:Connect(function()
         if not selectedPart or not selectedPart.Parent then
             if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
             return
         end
-        
         if originalAnchoredState == nil then
             originalAnchoredState = selectedPart.Anchored
         end
-        
         local newState = not selectedPart.Anchored
-        pcall(function()
-            selectedPart.Anchored = newState
-        end)
-        
-        updateAnchoredButtonUI()
+        pcall(function() selectedPart.Anchored = newState end)
+        if updateAnchoredButtonUI then updateAnchoredButtonUI() end
         if partInfoLabel then partInfoLabel.Text = newState and "🔒 Part anchored!" or "🔓 Part unanchored!" end
-        updateObjectScannerUI()
+        if updateObjectScannerUI then updateObjectScannerUI() end
     end)
 
-    -- Sự kiện cho nút Reset Anchored
     resetAnchoredBtn.MouseButton1Click:Connect(function()
         if not selectedPart or not selectedPart.Parent then
             if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
             return
         end
-        
         if originalAnchoredState == nil then
             originalAnchoredState = false
         end
-        
-        pcall(function()
-            selectedPart.Anchored = originalAnchoredState
-        end)
-        
-        updateAnchoredButtonUI()
+        pcall(function() selectedPart.Anchored = originalAnchoredState end)
+        if updateAnchoredButtonUI then updateAnchoredButtonUI() end
         if partInfoLabel then partInfoLabel.Text = originalAnchoredState and "🔒 Restored anchored state!" or "🔓 Restored unanchored state!" end
-        updateObjectScannerUI()
+        if updateObjectScannerUI then updateObjectScannerUI() end
     end)
 
+    -- ========== CÁC SỰ KIỆN KHÁC ==========
     searchByNameBtn.MouseButton1Click:Connect(function()
         local name = partNameBox.Text
         if name == "" then
             if partInfoLabel then partInfoLabel.Text = "⚠️ Please enter a part name!" end
             return
         end
-
         if partInfoLabel then partInfoLabel.Text = "🔍 Searching..." end
-
         task.spawn(function()
             local found = Workspace:FindFirstChild(name, true)
-
             if found and found:IsA("BasePart") then
                 if selectedPart then lastSelectedPart = selectedPart end
                 selectedPart = found
-                applySelectionBoxToPart(selectedPart)
-                updateObjectScannerUI()
+                if applySelectionBoxToPart then applySelectionBoxToPart(selectedPart) end
+                if updateObjectScannerUI then updateObjectScannerUI() end
                 if partInfoLabel then partInfoLabel.Text = string.format("✅ Found: %s", found.Name) end
             else
                 if partInfoLabel then partInfoLabel.Text = "❌ No part named: " .. name end
@@ -1628,7 +1610,6 @@
         clearConnection("BringSelectMouse")
         selectPartBtn.Text = "🖱️ Click..."
         selectPartBtn.BackgroundColor3 = Color3.fromRGB(200,140,40)
-
         local mouse = lp:GetMouse()
         local bSelectConn = mouse.Button1Down:Connect(function()
             local target = mouse.Target
@@ -1636,14 +1617,14 @@
             selectPartBtn.Text = "🎯 Select"
             selectPartBtn.BackgroundColor3 = Color3.fromRGB(90,63,150)
             if target then
-                if isCharacterPart(target) then
+                if isCharacterPart and isCharacterPart(target) then
                     if partInfoLabel then partInfoLabel.Text = "⚠️ Cannot select player parts!" end
                     return
                 end
                 if selectedPart then lastSelectedPart = selectedPart end
                 selectedPart = target
-                applySelectionBoxToPart(selectedPart)
-                updateObjectScannerUI()
+                if applySelectionBoxToPart then applySelectionBoxToPart(selectedPart) end
+                if updateObjectScannerUI then updateObjectScannerUI() end
             end
         end)
         registerConnection("BringSelectMouse", bSelectConn)
@@ -1654,8 +1635,8 @@
             local temp = selectedPart
             selectedPart = lastSelectedPart
             lastSelectedPart = temp
-            applySelectionBoxToPart(selectedPart)
-            updateObjectScannerUI()
+            if applySelectionBoxToPart then applySelectionBoxToPart(selectedPart) end
+            if updateObjectScannerUI then updateObjectScannerUI() end
         end
     end)
 
@@ -1676,12 +1657,11 @@
             return
         end
         if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
-
         local root = lp.Character.HumanoidRootPart
         local targetCF = root.CFrame * CFrame.new(0, 0, -4)
         networkBring(selectedPart, targetCF)
         if partInfoLabel then partInfoLabel.Text = "✅ Bring executed!" end
-        updateObjectScannerUI()
+        if updateObjectScannerUI then updateObjectScannerUI() end
     end)
 
     tpToPartBtn.MouseButton1Click:Connect(function()
@@ -1689,7 +1669,7 @@
         local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
         if not root then return end
         root.CFrame = selectedPart.CFrame * CFrame.new(0, 3, 0)
-        updateObjectScannerUI()
+        if updateObjectScannerUI then updateObjectScannerUI() end
     end)
 
     bringAllBtn.MouseButton1Click:Connect(function()
@@ -1699,29 +1679,28 @@
             return
         end
         if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
-
         local name = selectedPart.Name
         local count = 0
         local targetCF = lp.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -5)
-
         if partInfoLabel then partInfoLabel.Text = "🌀 Scanning..." end
-
         task.spawn(function()
             local allItems = Workspace:GetDescendants()
             for i = 1, #allItems do
                 local p = allItems[i]
-                if p and p:IsA("BasePart") and p.Name == name and not p.Anchored and not isCharacterPart(p) then
+                if p and p:IsA("BasePart") and p.Name == name and not p.Anchored and (not isCharacterPart or not isCharacterPart(p)) then
                     networkBring(p, targetCF)
                     count = count + 1
                 end
                 if i % 150 == 0 then task.wait() end
             end
             if partInfoLabel then partInfoLabel.Text = string.format("🌀 Brought %d items!", count) end
-            updateObjectScannerUI()
+            if updateObjectScannerUI then updateObjectScannerUI() end
         end)
     end)
 
-    -- PHYSICS SANDBOX
+    -- ====================================================================
+    -- PHYSICS SANDBOX (GIỮ NGUYÊN)
+    -- ====================================================================
     local sandboxTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
     C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Physics Sandbox Environment ---", TextColor3 = Color3.fromRGB(210,120,40), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, sandboxTitleRow)
 
@@ -1775,8 +1754,8 @@
         if not selectedPart or not selectedPart.Parent or selectedPart.Anchored then return end
 
         if state.lockToMeEnabled then
-            local pOwner = getPartNetworkOwner(selectedPart)
-            if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
+            local pOwner = getPartNetworkOwner and getPartNetworkOwner(selectedPart) or "Unknown"
+            if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static" then
                 pcall(function()
                     selectedPart.CFrame = root.CFrame * CFrame.new(0, 1, -5)
                     selectedPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
@@ -1786,8 +1765,8 @@
         end
 
         if state.freezeEnabled then
-            local pOwner = getPartNetworkOwner(selectedPart)
-            if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
+            local pOwner = getPartNetworkOwner and getPartNetworkOwner(selectedPart) or "Unknown"
+            if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static" then
                 pcall(function()
                     selectedPart.AssemblyLinearVelocity = Vector3.new(0, 0.08, 0)
                     selectedPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
