@@ -1075,28 +1075,28 @@
     end
 
     local function createLootBillboard(part)
-        local bb = C("BillboardGui", {
-            Size = UDim2.fromOffset(110, 25),
-            StudsOffset = Vector3.new(0, 2, 0),
-            AlwaysOnTop = true,
-            Adornee = part
-        }, screen)
-        local label = C("TextLabel", {
-            Parent = bb,
-            Size = UDim2.fromScale(1, 1),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.GothamBold,
-            TextSize = 10,
-            TextColor3 = Color3.fromRGB(0, 230, 255),
-            TextStrokeTransparency = 0
-        })
-        return { billboard = bb, label = label, lastDist = nil }
-    end
+    local bb = C("BillboardGui", {
+        Size = UDim2.fromOffset(110, 25),
+        StudsOffset = Vector3.new(0, 2, 0),
+        AlwaysOnTop = true,
+        Adornee = part
+    }, screen)
+    local label = C("TextLabel", {
+        Parent = bb,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 10,
+        TextColor3 = Color3.fromRGB(0, 230, 255),
+        TextStrokeTransparency = 0
+    })
+    return { billboard = bb, label = label, lastDist = nil }
+end
 
-    local function addLootToRegistry(part)
-        if lootRegistry[part] then return end
-        lootRegistry[part] = createLootBillboard(part)
-    end
+local function addLootToRegistry(part)
+    if lootRegistry[part] then return end
+    lootRegistry[part] = createLootBillboard(part)
+end
 
     local function removeLootFromRegistry(part)
         local cache = lootRegistry[part]
