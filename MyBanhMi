@@ -1271,10 +1271,7 @@ cachedRoot = nil
 isRebuilding = false
 rebuildRetryCount = 0
 resumeFailureCount = 0
-MAX_RESUME_FAILURE = 5
 rebuildToken = 0
-MAX_REBUILD_RETRY = 10
-lastCharacter = nil
 mobileVerticalInput = 0
 isAscendActive = false
 isDescendActive = false
@@ -1290,43 +1287,51 @@ descendBtn = nil
 activeTouchInput = nil
 flyDiedConn = nil
 flyCharAddedConn = nil
+isResuming = false
 
-local function getCameraRotationFly()
+local MAX_RESUME_FAILURE = 5
+local MAX_REBUILD_RETRY = 10
+local RUN_SERVICE_PHYSICS = RunService.Heartbeat
+local RUN_SERVICE_CAMERA = RunService.RenderStepped
+local DEFAULT_RESPONSIVENESS = 55
+
+function getCameraRotationFly()
     local cam = Workspace.CurrentCamera
     if not cam then return CFrame.identity end
     local cf = cam.CFrame
     return CFrame.fromMatrix(Vector3.new(0,0,0), cf.RightVector, cf.UpVector, -cf.LookVector)
 end
 
-local function setOrientationEnabledFly(enabled)
-    if flyAlignOrientation then pcall(function() flyAlignOrientation.Enabled = enabled end) end
+function setOrientationEnabledFly(enabled)
+    if flyAlignOrientation then
+        pcall(function() flyAlignOrientation.Enabled = enabled end)
+    end
 end
 
-local function invalidateRebuildsFly()
+function invalidateRebuildsFly()
     rebuildToken = rebuildToken + 1
     isRebuilding = false
     rebuildRetryCount = 0
 end
 
-local function resetFailureCounterFly()
+function resetFailureCounterFly()
     resumeFailureCount = 0
     lastCharacter = lp.Character
 end
 
-local function isHumanoidFlyValid()
+function isHumanoidFlyValid()
     if not cachedHumanoid then return false end
     if cachedHumanoid.Parent ~= lp.Character then return false end
     if cachedHumanoid.Health <= 0 then return false end
-    local humState = cachedHumanoid:GetState()
-    return humState ~= Enum.HumanoidStateType.Dead
+    return cachedHumanoid:GetState() ~= Enum.HumanoidStateType.Dead
 end
 
-local function isRootFlyValid()
+function isRootFlyValid()
     if not cachedRoot then return false end
     return cachedRoot.Parent == lp.Character
 end
 
-local function refreshFlyCaches()
+function refreshFlyCaches()
     if not lp.Character then
         cachedHumanoid = nil
         cachedRoot = nil
@@ -1336,7 +1341,7 @@ local function refreshFlyCaches()
     cachedRoot = lp.Character:FindFirstChild("HumanoidRootPart")
 end
 
-local function setupFlyCharacter(char)
+function setupFlyCharacter(char)
     if not char then return end
     refreshFlyCaches()
     if cachedHumanoid then
@@ -1351,7 +1356,7 @@ local function setupFlyCharacter(char)
     end
 end
 
-local function updateMobileVerticalInputFly()
+function updateMobileVerticalInputFly()
     if isAscendActive then
         mobileVerticalInput = 1
     elseif isDescendActive then
@@ -1361,47 +1366,39 @@ local function updateMobileVerticalInputFly()
     end
 end
 
-local function onAscendStartFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch then
-        if not activeAscendTouch then
-            activeAscendTouch = input
-            isAscendActive = true
-            updateMobileVerticalInputFly()
-        end
+function onAscendStartFly(input)
+    if input.UserInputType == Enum.UserInputType.Touch and not activeAscendTouch then
+        activeAscendTouch = input
+        isAscendActive = true
+        updateMobileVerticalInputFly()
     end
 end
 
-local function onAscendEndFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch then
-        if activeAscendTouch == input then
-            activeAscendTouch = nil
-            isAscendActive = false
-            updateMobileVerticalInputFly()
-        end
+function onAscendEndFly(input)
+    if input.UserInputType == Enum.UserInputType.Touch and activeAscendTouch == input then
+        activeAscendTouch = nil
+        isAscendActive = false
+        updateMobileVerticalInputFly()
     end
 end
 
-local function onDescendStartFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch then
-        if not activeDescendTouch then
-            activeDescendTouch = input
-            isDescendActive = true
-            updateMobileVerticalInputFly()
-        end
+function onDescendStartFly(input)
+    if input.UserInputType == Enum.UserInputType.Touch and not activeDescendTouch then
+        activeDescendTouch = input
+        isDescendActive = true
+        updateMobileVerticalInputFly()
     end
 end
 
-local function onDescendEndFly(input)
-    if input.UserInputType == Enum.UserInputType.Touch then
-        if activeDescendTouch == input then
-            activeDescendTouch = nil
-            isDescendActive = false
-            updateMobileVerticalInputFly()
-        end
+function onDescendEndFly(input)
+    if input.UserInputType == Enum.UserInputType.Touch and activeDescendTouch == input then
+        activeDescendTouch = nil
+        isDescendActive = false
+        updateMobileVerticalInputFly()
     end
 end
 
-local function onTouchCancelFly(input)
+function onTouchCancelFly(input)
     if input == activeAscendTouch then
         activeAscendTouch = nil
         isAscendActive = false
@@ -1417,7 +1414,7 @@ local function onTouchCancelFly(input)
     end
 end
 
-local function resetJoystickFly()
+function resetJoystickFly()
     joystickActive = false
     joystickDirection = Vector2.new(0,0)
     if joystickKnob then
@@ -1426,16 +1423,14 @@ local function resetJoystickFly()
     activeTouchInput = nil
 end
 
-local function getFlatMoveDirection()
+function getFlatMoveDirection()
     local moveDir = Vector3.new(0,0,0)
     local cam = Workspace.CurrentCamera
     if not cam then
         if cachedRoot then
             moveDir = cachedRoot.CFrame.LookVector
             moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-            if moveDir.Magnitude > 0 then
-                moveDir = moveDir.Unit
-            end
+            if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
         end
         return moveDir
     end
@@ -1445,9 +1440,7 @@ local function getFlatMoveDirection()
         local right = camCF.RightVector
         moveDir = (forward * joystickDirection.Y) + (right * joystickDirection.X)
         moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-        if moveDir.Magnitude > 0 then
-            moveDir = moveDir.Unit
-        end
+        if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
     else
         if UIS:IsKeyDown(Enum.KeyCode.W) then
             local f = camCF.LookVector
@@ -1467,80 +1460,89 @@ local function getFlatMoveDirection()
         end
         if moveDir.Magnitude < 0.01 and cachedRoot then
             local rootCF = cachedRoot.CFrame
-            if UIS:IsKeyDown(Enum.KeyCode.W) then
-                moveDir = moveDir + rootCF.LookVector
-            end
-            if UIS:IsKeyDown(Enum.KeyCode.S) then
-                moveDir = moveDir - rootCF.LookVector
-            end
-            if UIS:IsKeyDown(Enum.KeyCode.A) then
-                moveDir = moveDir - rootCF.RightVector
-            end
-            if UIS:IsKeyDown(Enum.KeyCode.D) then
-                moveDir = moveDir + rootCF.RightVector
-            end
+            if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + rootCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - rootCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - rootCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + rootCF.RightVector end
             moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
         end
-        if moveDir.Magnitude > 0 then
-            moveDir = moveDir.Unit
-        end
+        if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
     end
     return moveDir
 end
 
-local function createMobileControlButtonsFly()
+function createMobileControlButtonsFly()
     if not UIS.TouchEnabled then return end
     local btnSize = 50
-    ascendBtn = C("TextButton", {
-        Parent = screen, Size = UDim2.fromOffset(btnSize, btnSize),
-        Position = UDim2.fromScale(0.85, 0.7), BackgroundColor3 = Color3.fromRGB(70,70,90),
-        BackgroundTransparency = 0.3, Text = "▲", TextColor3 = Color3.fromRGB(255,255,255),
-        Font = Enum.Font.GothamBold, TextSize = 20, Visible = false, ZIndex = 1000
-    })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, ascendBtn)
-    descendBtn = C("TextButton", {
-        Parent = screen, Size = UDim2.fromOffset(btnSize, btnSize),
-        Position = UDim2.fromScale(0.85, 0.8), BackgroundColor3 = Color3.fromRGB(70,70,90),
-        BackgroundTransparency = 0.3, Text = "▼", TextColor3 = Color3.fromRGB(255,255,255),
-        Font = Enum.Font.GothamBold, TextSize = 20, Visible = false, ZIndex = 1000
-    })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, descendBtn)
-    local aib = ascendBtn.InputBegan:Connect(onAscendStartFly)
-    local aie = ascendBtn.InputEnded:Connect(onAscendEndFly)
-    local dib = descendBtn.InputBegan:Connect(onDescendStartFly)
-    local die = descendBtn.InputEnded:Connect(onDescendEndFly)
-    table.insert(joystickConnections, aib)
-    table.insert(joystickConnections, aie)
-    table.insert(joystickConnections, dib)
-    table.insert(joystickConnections, die)
+    ascendBtn = Instance.new("TextButton")
+    ascendBtn.Parent = screen
+    ascendBtn.Size = UDim2.fromOffset(btnSize, btnSize)
+    ascendBtn.Position = UDim2.fromScale(0.85, 0.7)
+    ascendBtn.BackgroundColor3 = Color3.fromRGB(70,70,90)
+    ascendBtn.BackgroundTransparency = 0.3
+    ascendBtn.Text = "▲"
+    ascendBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    ascendBtn.Font = Enum.Font.GothamBold
+    ascendBtn.TextSize = 20
+    ascendBtn.Visible = false
+    ascendBtn.ZIndex = 1000
+    Instance.new("UICorner", ascendBtn).CornerRadius = UDim.new(1,0)
+    
+    descendBtn = Instance.new("TextButton")
+    descendBtn.Parent = screen
+    descendBtn.Size = UDim2.fromOffset(btnSize, btnSize)
+    descendBtn.Position = UDim2.fromScale(0.85, 0.8)
+    descendBtn.BackgroundColor3 = Color3.fromRGB(70,70,90)
+    descendBtn.BackgroundTransparency = 0.3
+    descendBtn.Text = "▼"
+    descendBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    descendBtn.Font = Enum.Font.GothamBold
+    descendBtn.TextSize = 20
+    descendBtn.Visible = false
+    descendBtn.ZIndex = 1000
+    Instance.new("UICorner", descendBtn).CornerRadius = UDim.new(1,0)
+    
+    table.insert(joystickConnections, ascendBtn.InputBegan:Connect(onAscendStartFly))
+    table.insert(joystickConnections, ascendBtn.InputEnded:Connect(onAscendEndFly))
+    table.insert(joystickConnections, descendBtn.InputBegan:Connect(onDescendStartFly))
+    table.insert(joystickConnections, descendBtn.InputEnded:Connect(onDescendEndFly))
 end
 
-local function createMobileJoystickFly()
+function createMobileJoystickFly()
     if not UIS.TouchEnabled then return end
-    joystickFrame = C("Frame", {
-        Parent = screen, Size = UDim2.fromOffset(120, 120), Position = UDim2.fromScale(0.12, 0.85),
-        BackgroundColor3 = Color3.fromRGB(30,30,40), BackgroundTransparency = 0.5, Visible = false, ZIndex = 1000
-    })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, joystickFrame)
-    joystickKnob = C("Frame", {
-        Parent = joystickFrame, Size = UDim2.fromOffset(40, 40), Position = UDim2.new(0.5, -20, 0.5, -20),
-        BackgroundColor3 = Color3.fromRGB(200,200,220), BackgroundTransparency = 0.3, ZIndex = 1001
-    })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, joystickKnob)
+    joystickFrame = Instance.new("Frame")
+    joystickFrame.Parent = screen
+    joystickFrame.Size = UDim2.fromOffset(120, 120)
+    joystickFrame.Position = UDim2.fromScale(0.12, 0.85)
+    joystickFrame.BackgroundColor3 = Color3.fromRGB(30,30,40)
+    joystickFrame.BackgroundTransparency = 0.5
+    joystickFrame.Visible = false
+    joystickFrame.ZIndex = 1000
+    Instance.new("UICorner", joystickFrame).CornerRadius = UDim.new(1,0)
+    
+    joystickKnob = Instance.new("Frame")
+    joystickKnob.Parent = joystickFrame
+    joystickKnob.Size = UDim2.fromOffset(40, 40)
+    joystickKnob.Position = UDim2.new(0.5, -20, 0.5, -20)
+    joystickKnob.BackgroundColor3 = Color3.fromRGB(200,200,220)
+    joystickKnob.BackgroundTransparency = 0.3
+    joystickKnob.ZIndex = 1001
+    Instance.new("UICorner", joystickKnob).CornerRadius = UDim.new(1,0)
+    
     local center = Vector2.new(60, 60)
     local radius = 50
-    local function getFramePos()
-        if not joystickFrame then return Vector2.new(0,0) end
-        return joystickFrame.AbsolutePosition
+    
+    function getFramePos()
+        return joystickFrame and joystickFrame.AbsolutePosition or Vector2.new(0,0)
     end
-    local function isTouchInJoystick(touch)
+    
+    function isTouchInJoystick(touch)
         local framePos = getFramePos()
-        local localPos = touch.Position - framePos
-        return (localPos - center).Magnitude <= radius
+        return (touch.Position - framePos - center).Magnitude <= radius
     end
-    local function updateJoystickFromTouch(touch)
-        local framePos = getFramePos()
-        local localPos = touch.Position - framePos
+    
+    function updateJoystickFromTouch(touch)
+        local localPos = touch.Position - getFramePos()
         local relative = localPos - center
         local magnitude = math.min(relative.Magnitude, radius)
         if magnitude > 0 then
@@ -1552,36 +1554,33 @@ local function createMobileJoystickFly()
             joystickKnob.Position = UDim2.new(0.5, -20, 0.5, -20)
         end
     end
-    local tsConn = UIS.TouchStarted:Connect(function(touch, processed)
-        if processed then return end
-        if not joystickFrame.Visible then return end
-        if activeTouchInput then return end
+    
+    table.insert(joystickConnections, UIS.TouchStarted:Connect(function(touch, processed)
+        if processed or not joystickFrame.Visible or activeTouchInput then return end
         if isTouchInJoystick(touch) then
             activeTouchInput = touch
             joystickActive = true
             updateJoystickFromTouch(touch)
         end
-    end)
-    table.insert(joystickConnections, tsConn)
-    local tmConn = UIS.TouchMoved:Connect(function(touch, processed)
-        if not joystickActive then return end
-        if touch ~= activeTouchInput then return end
+    end))
+    
+    table.insert(joystickConnections, UIS.TouchMoved:Connect(function(touch, processed)
+        if not joystickActive or touch ~= activeTouchInput then return end
         updateJoystickFromTouch(touch)
-    end)
-    table.insert(joystickConnections, tmConn)
-    local teConn = UIS.TouchEnded:Connect(function(touch, processed)
-        if not joystickActive then return end
-        if touch ~= activeTouchInput then return end
+    end))
+    
+    table.insert(joystickConnections, UIS.TouchEnded:Connect(function(touch, processed)
+        if not joystickActive or touch ~= activeTouchInput then return end
         resetJoystickFly()
-    end)
-    table.insert(joystickConnections, teConn)
+    end))
+    
     if UIS.TouchCancelled then
-        local tcConn = UIS.TouchCancelled:Connect(onTouchCancelFly)
-        table.insert(joystickConnections, tcConn)
+        table.insert(joystickConnections, UIS.TouchCancelled:Connect(onTouchCancelFly))
     end
 end
 
-local function cleanupJoystickFly()
+
+function cleanupJoystickFly()
     for _, conn in ipairs(joystickConnections) do
         pcall(function() conn:Disconnect() end)
     end
@@ -1597,81 +1596,64 @@ local function cleanupJoystickFly()
     if joystickFrame then pcall(function() joystickFrame:Destroy() end); joystickFrame = nil; joystickKnob = nil end
 end
 
-local function ensureFlyComponents(root)
+function ensureFlyComponents(root)
     if not root then return false end
     local valid = flyAttachment and flyAttachment.Parent == root and
                   flyLinearVelocity and flyLinearVelocity.Parent == root and
-                  flyAlignOrientation and flyAlignOrientation.Parent == root and
-                  flyLinearVelocity.Attachment0 == flyAttachment and
-                  flyAlignOrientation.Attachment0 == flyAttachment
+                  flyAlignOrientation and flyAlignOrientation.Parent == root
     if valid then return true end
-    local oldAtt = flyAttachment
-    local oldLV = flyLinearVelocity
-    local oldAO = flyAlignOrientation
-    local newAtt = Instance.new("Attachment")
-    newAtt.Name = "LinhFlyAttachment"
-    local newLV = Instance.new("LinearVelocity")
-    newLV.Name = "LinhFlyLinearVelocity"
-    newLV.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-    newLV.VectorVelocity = Vector3.new(0,0,0)
-    newLV.Attachment0 = newAtt
-    newLV.RelativeTo = Enum.ActuatorRelativeTo.World
-    local newAO = Instance.new("AlignOrientation")
-    newAO.Name = "LinhFlyAlignOrientation"
-    newAO.RigidityEnabled = true
-    newAO.Responsiveness = DEFAULT_RESPONSIVENESS
-    newAO.Attachment0 = newAtt
-    newAtt.Parent = root
-    newLV.Parent = root
-    newAO.Parent = root
-    flyAttachment = newAtt
-    flyLinearVelocity = newLV
-    flyAlignOrientation = newAO
+    
+    local oldAtt, oldLV, oldAO = flyAttachment, flyLinearVelocity, flyAlignOrientation
+    
+    flyAttachment = Instance.new("Attachment")
+    flyAttachment.Name = "LinhFlyAttachment"
+    
+    flyLinearVelocity = Instance.new("LinearVelocity")
+    flyLinearVelocity.Name = "LinhFlyLinearVelocity"
+    flyLinearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+    flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0)
+    flyLinearVelocity.Attachment0 = flyAttachment
+    flyLinearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+    
+    flyAlignOrientation = Instance.new("AlignOrientation")
+    flyAlignOrientation.Name = "LinhFlyAlignOrientation"
+    flyAlignOrientation.RigidityEnabled = true
+    flyAlignOrientation.Responsiveness = DEFAULT_RESPONSIVENESS
+    flyAlignOrientation.Attachment0 = flyAttachment
+    
+    flyAttachment.Parent = root
+    flyLinearVelocity.Parent = root
+    flyAlignOrientation.Parent = root
+    
     if oldAtt then pcall(function() oldAtt:Destroy() end) end
     if oldLV then pcall(function() oldLV:Destroy() end) end
     if oldAO then pcall(function() oldAO:Destroy() end) end
     return true
 end
 
-local function pauseFlyState()
+function pauseFlyState()
     pcall(function()
-        if flyLinearVelocity then
-            flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0)
-        end
+        if flyLinearVelocity then flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0) end
         setOrientationEnabledFly(false)
-        if flyConn then
-            flyConn:Disconnect()
-            flyConn = nil
-        end
-        if cameraConn then
-            cameraConn:Disconnect()
-            cameraConn = nil
-        end
+        if flyConn then flyConn:Disconnect(); flyConn = nil end
+        if cameraConn then cameraConn:Disconnect(); cameraConn = nil end
     end)
     clearConnection("FlightEngineLoop")
     clearConnection("CameraOrientationLoop")
 end
 
-local isResuming = false
-local function resumeFlyState()
+function resumeFlyState()
     if isResuming then return false end
     if not state.flying or not lp.Character then
         resumeFailureCount = 0
         return false
     end
     isResuming = true
-    local success = false
     local ok, err = pcall(function()
         refreshFlyCaches()
-        if not cachedHumanoid or not cachedRoot then
-            error("No humanoid or root")
-        end
-        if not isHumanoidFlyValid() then
-            error("Humanoid invalid")
-        end
-        if not ensureFlyComponents(cachedRoot) then
-            error("Failed to ensure fly components")
-        end
+        if not cachedHumanoid or not cachedRoot then error("No humanoid/root") end
+        if not isHumanoidFlyValid() then error("Humanoid invalid") end
+        if not ensureFlyComponents(cachedRoot) then error("Failed components") end
         setOrientationEnabledFly(true)
         if UIS.TouchEnabled and not joystickFrame then
             createMobileJoystickFly()
@@ -1680,42 +1662,22 @@ local function resumeFlyState()
         if flyConn then flyConn:Disconnect() end
         if cameraConn then cameraConn:Disconnect() end
         flyConn = RUN_SERVICE_PHYSICS:Connect(function()
-            if not state.flying or not lp.Character then
-                pauseFlyState()
-                return
+            if not state.flying or not lp.Character then pauseFlyState(); return end
+            if not isRootFlyValid() then pauseFlyState(); scheduleRebuildFly(); return end
+            if not isHumanoidFlyValid() then refreshFlyCaches()
+                if not isHumanoidFlyValid() then pauseFlyState(); scheduleRebuildFly(); return end
             end
-            if not isRootFlyValid() then
-                pauseFlyState()
-                scheduleRebuildFly()
-                return
-            end
-            if not isHumanoidFlyValid() then
-                refreshFlyCaches()
-                if not isHumanoidFlyValid() then
-                    pauseFlyState()
-                    scheduleRebuildFly()
-                    return
-                end
-            end
-            if flyAttachment and flyAttachment.Parent ~= cachedRoot then
-                ensureFlyComponents(cachedRoot)
-            end
+            if flyAttachment and flyAttachment.Parent ~= cachedRoot then ensureFlyComponents(cachedRoot) end
             local moveDir = getFlatMoveDirection()
             local finalVel = moveDir * state.flySpeed
             if UIS.TouchEnabled and mobileVerticalInput ~= 0 then
                 finalVel = finalVel + Vector3.new(0, mobileVerticalInput * state.flySpeed, 0)
             end
             if not UIS.TouchEnabled then
-                if UIS:IsKeyDown(Enum.KeyCode.Space) then
-                    finalVel = finalVel + Vector3.new(0, state.flySpeed, 0)
-                end
-                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then
-                    finalVel = finalVel - Vector3.new(0, state.flySpeed, 0)
-                end
+                if UIS:IsKeyDown(Enum.KeyCode.Space) then finalVel = finalVel + Vector3.new(0, state.flySpeed, 0) end
+                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then finalVel = finalVel - Vector3.new(0, state.flySpeed, 0) end
             end
-            if flyLinearVelocity then
-                flyLinearVelocity.VectorVelocity = finalVel
-            end
+            if flyLinearVelocity then flyLinearVelocity.VectorVelocity = finalVel end
         end)
         cameraConn = RUN_SERVICE_CAMERA:Connect(function()
             if not state.flying or not lp.Character then return end
@@ -1725,83 +1687,58 @@ local function resumeFlyState()
         end)
         registerConnection("FlightEngineLoop", flyConn)
         registerConnection("CameraOrientationLoop", cameraConn)
-        success = true
     end)
     if not ok then
-        warn("[Fly] Resume failed: " .. tostring(err))
         resumeFailureCount = resumeFailureCount + 1
         pauseFlyState()
     else
         resumeFailureCount = 0
     end
     isResuming = false
-    return success
+    return ok
 end
 
-local function scheduleRebuildFly()
+function scheduleRebuildFly()
     if isRebuilding then return end
     isRebuilding = true
     rebuildRetryCount = 0
     local myToken = rebuildToken
-    local function attemptRebuild()
-        if not state.flying then
-            isRebuilding = false
-            return
-        end
-        if myToken ~= rebuildToken then
-            isRebuilding = false
-            return
-        end
-        if lp.Character ~= lastCharacter then
-            resetFailureCounterFly()
-        end
+    local function attempt()
+        if not state.flying then isRebuilding = false; return end
+        if myToken ~= rebuildToken then isRebuilding = false; return end
+        if lp.Character ~= lastCharacter then resetFailureCounterFly() end
         if resumeFailureCount >= MAX_RESUME_FAILURE then
-            warn("[Fly] Too many resume failures, stopping rebuild attempts")
             isRebuilding = false
-            if state.flying then
-                pauseFlyState()
-            end
+            if state.flying then pauseFlyState() end
             return
         end
         refreshFlyCaches()
-        local hasChar = lp.Character ~= nil
-        local hasRoot = cachedRoot ~= nil
-        local hasHumanoid = cachedHumanoid ~= nil and cachedHumanoid.Health > 0
-        if hasChar and hasRoot and hasHumanoid then
-            local resumed = resumeFlyState()
-            isRebuilding = false
-            rebuildRetryCount = 0
-            if not resumed then
-                task.delay(0.5, function()
-                    if state.flying and resumeFailureCount < MAX_RESUME_FAILURE then
-                        scheduleRebuildFly()
-                    end
-                end)
+        if lp.Character and cachedRoot and cachedHumanoid and cachedHumanoid.Health > 0 then
+            if resumeFlyState() then
+                isRebuilding = false
+                rebuildRetryCount = 0
+            else
+                task.delay(0.5, function() if state.flying and resumeFailureCount < MAX_RESUME_FAILURE then scheduleRebuildFly() end end)
             end
         elseif rebuildRetryCount < MAX_REBUILD_RETRY then
             rebuildRetryCount = rebuildRetryCount + 1
-            task.delay(0.5, attemptRebuild)
+            task.delay(0.5, attempt)
         else
             isRebuilding = false
-            rebuildRetryCount = 0
-            if state.flying then
-                pauseFlyState()
-            end
+            if state.flying then pauseFlyState() end
         end
     end
-    task.defer(attemptRebuild)
+    task.defer(attempt)
 end
 
-local function onCharacterAddedFly(char)
+function onCharacterAddedFly(char)
     invalidateRebuildsFly()
     resetFailureCounterFly()
     setupFlyCharacter(char)
-    if state.flying then
-        resumeFlyState()
-    end
+    if state.flying then resumeFlyState() end
 end
 
-local function toggleFlyState()
+function toggleFlyState()
     state.flying = not state.flying
     flyBtn.Text = state.flying and "FLY: ON" or "FLY: OFF"
     TweenService:Create(flyBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.flying and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
@@ -1830,11 +1767,7 @@ local function toggleFlyState()
         end
         if lp.Character then
             local root = lp.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                pcall(function()
-                    root.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                end)
-            end
+            if root then pcall(function() root.AssemblyLinearVelocity = Vector3.new(0,0,0) end) end
         end
     end
 end
@@ -1854,28 +1787,17 @@ end)
 
 CAS:BindAction("FlyActionKey", function(_, actionState)
     if UIS:GetFocusedTextBox() then return end
-    if actionState == Enum.UserInputState.Begin then
-        toggleFlyState()
-    end
+    if actionState == Enum.UserInputState.Begin then toggleFlyState() end
 end, false, Enum.KeyCode.B)
 
-local function clearFlyCharacterAddedConnection()
-    if flyCharAddedConn then
-        pcall(function() flyCharAddedConn:Disconnect() end)
-        flyCharAddedConn = nil
-    end
-end
-
-clearFlyCharacterAddedConnection()
+if flyCharAddedConn then pcall(function() flyCharAddedConn:Disconnect() end) end
 flyCharAddedConn = lp.CharacterAdded:Connect(onCharacterAddedFly)
 registerConnection("FlyCharacterAdded", flyCharAddedConn)
 
 if lp.Character then
     setupFlyCharacter(lp.Character)
     resetFailureCounterFly()
-    if state.flying then
-        resumeFlyState()
-    end
+    if state.flying then resumeFlyState() end
 end
 
     -- ====================================================================
