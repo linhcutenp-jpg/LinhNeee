@@ -44,7 +44,7 @@
         },
         DEFAULT_THEME = "Dark",
         UI_WINDOW_SIZE = UDim2.fromOffset(520, 650),
-        UI_SCROLL_CANVAS = UDim2.new(0,0,0,950),
+        UI_SCROLL_CANVAS = UDim2.new(0,0,0,150),
     }
 
     local ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE
