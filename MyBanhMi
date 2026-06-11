@@ -1,5 +1,5 @@
 (function()
-    print("Gello, Bbi :YoyoHeart: - Enterprise Grade v10.7.25 - ABSOLUTE FINAL")
+    print("Linh Script Premium v10.7.25 - COMPLETE EDITION (Stable)")
 
     local Players = game:GetService("Players")
     local TweenService = game:GetService("TweenService")
@@ -15,7 +15,7 @@
 
     -- CONFIG
     local Config = {
-        PROTECT = true,
+        PROTECT = false,
         ALLOWED_USER_IDS = { 7651295755, 7361198469 },
         SECURITY_HEARTBEAT = 30,
         MAX_SAFE_JUMP_POWER = 180,
@@ -61,13 +61,9 @@
         if not allowed then return end
     end
 
+    -- KIỂM TRA EXISTING
     local existing = pg:FindFirstChild("MenuUI")
     if existing then pcall(function() existing:Destroy() end) end
-
-    -- FORWARD DECLARATIONS
-    local cleanupAll
-    local updateAnchoredButtonUI
-    local originalAnchoredState = nil
 
     -- SAFE PCALL
     local function safePCall(func, errorMsg)
@@ -76,7 +72,9 @@
         return success, result
     end
 
+    -- ====================================================================
     -- STATE
+    -- ====================================================================
     local state = {
         hidden = false, speedOn = false, speedValue = 100,
         jumpEnabled = false, jumpHeight = 100, infJump = false, multiJump = false,
@@ -92,7 +90,6 @@
     local lastPhysicsUpdate = 0
     local lastForceUpdate = 0
     local lastPosition = nil
-
     local currentHumanoid = nil
     local isInternalUpdate = false
     local currentJumpMethod = "Power"
@@ -106,7 +103,7 @@
     local xrayOriginalParts = {}
     local overlapParams = OverlapParams.new()
 
-    -- FLY variables (chỉ giữ cần thiết, bỏ mobile)
+    -- FLY variables (PC only)
     local flyLinearVelocity = nil
     local flyAlignOrientation = nil
     local flyAttachment = nil
@@ -131,20 +128,12 @@
     local dragStart, startPos = nil, nil
     local currentThemeName = Config.DEFAULT_THEME
 
-    -- REGISTRY HELPERS
-    local function registerConnection(id, conn)
-        if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
-        ConnectionRegistry[id] = conn
-        return conn
-    end
-    local function clearConnection(id)
-        if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
-        ConnectionRegistry[id] = nil
-    end
-
-    -- HELPERS
+    -- ====================================================================
+    -- ĐỊNH NGHĨA CÁC HÀM TRƯỚC KHI DÙNG (QUAN TRỌNG)
+    -- ====================================================================
     local function getRoot(char) return char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart) end
     local function isHumanoidValid(hum) return hum and hum.Parent and hum.Parent:IsA("Model") and hum.Parent.Parent == Workspace end
+
     local function getPartNetworkOwner(part)
         if not part then return "Invalid" end
         if part.Anchored then return "Static" end
@@ -154,6 +143,7 @@
         if owner == nil then return "Server" end
         return "Player: " .. owner.Name
     end
+
     local function isCharacterPart(part)
         if not part then return false end
         local model = part:FindFirstAncestorOfClass("Model")
@@ -163,6 +153,7 @@
         end
         return false
     end
+
     local function C(class, props, parent)
         local obj = Instance.new(class)
         if props then for k, v in pairs(props) do pcall(function() obj[k] = v end) end end
@@ -170,9 +161,371 @@
         return obj
     end
 
-    -- ====================================================================
-    -- UI CORE (GIỮ NGUYÊN)
-    -- ====================================================================
+    local function registerConnection(id, conn)
+        if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
+        ConnectionRegistry[id] = conn
+        return conn
+    end
+
+    local function clearConnection(id)
+        if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
+        ConnectionRegistry[id] = nil
+    end
+
+    -- ========== APPLY CHARACTER PHYSICS ==========
+    local function applyCharacterPhysics(char)
+        if not char then return end
+        if not lp.Character then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or not isHumanoidValid(hum) then return end
+        if hum:GetState() == Enum.HumanoidStateType.Dead then return end
+
+        hum.WalkSpeed = state.speedOn and state.speedValue or 16
+        hum.UseJumpPower = true
+
+        local targetJump = state.jumpEnabled and state.jumpHeight or 50
+        hum.JumpPower = math.min(targetJump, Config.MAX_SAFE_JUMP_POWER)
+    end
+
+    -- ========== JUMP MODULE ==========
+    local function detectJumpMethod(humanoid)
+        return humanoid.UseJumpPower and "Power" or "Height"
+    end
+
+    local function enforceJumpValue(humanoid)
+        if not state.jumpEnabled then return end
+        if not humanoid or not isHumanoidValid(humanoid) then return end
+
+        local now = time()
+        if now - lastJumpReset < Config.JUMP_THROTTLE then return end
+        lastJumpReset = now
+
+        local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
+
+        isInternalUpdate = true
+        local success, err = pcall(function()
+            if currentJumpMethod == "Height" then
+                if humanoid.JumpHeight ~= targetValue then
+                    humanoid.JumpHeight = targetValue
+                    humanoid.UseJumpPower = false
+                end
+            else
+                if humanoid.JumpPower ~= targetValue then
+                    humanoid.JumpPower = targetValue
+                    humanoid.UseJumpPower = true
+                end
+            end
+        end)
+        isInternalUpdate = false
+
+        if not success then
+            warn("[Jump] Enforce failed: " .. tostring(err))
+        end
+    end
+
+    local function safeJumpHook()
+        if not lp.Character then return false end
+
+        local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+        local root = lp.Character:FindFirstChild("HumanoidRootPart")
+
+        if not hum or not root then return false end
+        if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
+        if hum:GetState() == Enum.HumanoidStateType.Jumping then return false end
+
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+
+        if currentJumpMethod == "Height" then
+            pcall(function()
+                local currentVel = root.AssemblyLinearVelocity
+                local jumpVel = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER) / 2.5
+                root.AssemblyLinearVelocity = Vector3.new(currentVel.X, jumpVel, currentVel.Z)
+            end)
+        end
+
+        return true
+    end
+
+    local function setupJumpPatch(character)
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+
+        currentHumanoid = humanoid
+        currentJumpMethod = detectJumpMethod(humanoid)
+
+        local propertyName = (currentJumpMethod == "Height") and "JumpHeight" or "JumpPower"
+
+        clearConnection("JumpPropertyListener")
+
+        local propertyConn = humanoid:GetPropertyChangedSignal(propertyName):Connect(function()
+            if isInternalUpdate then return end
+            if not state.jumpEnabled then return end
+
+            local currentValue = (currentJumpMethod == "Height") and humanoid.JumpHeight or humanoid.JumpPower
+            local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
+
+            if currentValue ~= targetValue then
+                enforceJumpValue(humanoid)
+            end
+        end)
+        registerConnection("JumpPropertyListener", propertyConn)
+
+        task.defer(function()
+            if humanoid and isHumanoidValid(humanoid) then
+                enforceJumpValue(humanoid)
+            end
+        end)
+    end
+
+    local function onCharacterAdded(character)
+        jumpCount = 0
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if humanoid then
+            setupJumpPatch(character)
+        end
+    end
+
+    clearConnection("JumpPatchCharacterAdded")
+    local jumpPatchConn = lp.CharacterAdded:Connect(onCharacterAdded)
+    registerConnection("JumpPatchCharacterAdded", jumpPatchConn)
+
+    if lp.Character then
+        task.defer(function()
+            if lp.Character then
+                local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    setupJumpPatch(lp.Character)
+                end
+            end
+        end)
+    end
+
+    clearConnection("JumpRequest")
+    local jumpRequestConn = UIS.JumpRequest:Connect(function()
+        if not lp.Character then return end
+        if state.infJump then
+            safeJumpHook()
+        elseif state.multiJump and jumpCount < maxJumps then
+            safeJumpHook()
+            jumpCount = jumpCount + 1
+        end
+    end)
+    registerConnection("JumpRequest", jumpRequestConn)
+
+    local function hookMultiJumpState(char)
+        clearConnection("MultiJumpState")
+        if not char then return end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local conn = hum.StateChanged:Connect(function(_, newState)
+                if newState == Enum.HumanoidStateType.Landed then
+                    jumpCount = 0
+                elseif newState == Enum.HumanoidStateType.Jumping then
+                    jumpCount = jumpCount + 1
+                end
+            end)
+            registerConnection("MultiJumpState", conn)
+        else
+            local conn = char.ChildAdded:Connect(function(child)
+                if child:IsA("Humanoid") then
+                    local stateConn = child.StateChanged:Connect(function(_, newState)
+                        if newState == Enum.HumanoidStateType.Landed then
+                            jumpCount = 0
+                        elseif newState == Enum.HumanoidStateType.Jumping then
+                            jumpCount = jumpCount + 1
+                        end
+                    end)
+                    registerConnection("MultiJumpState", stateConn)
+                    conn:Disconnect()
+                end
+            end)
+            registerConnection("MultiJumpState", conn)
+        end
+    end
+
+    local function refreshCharacterPartsCache(char)
+        table.clear(characterPartsCache)
+        if not char then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(characterPartsCache, part)
+                if originalCollisions[part] == nil then
+                    originalCollisions[part] = part.CanCollide
+                end
+            end
+        end
+    end
+
+    -- ========== FLY SYSTEM (PC ONLY) ==========
+    local function getCameraRotationFly()
+        local cam = Workspace.CurrentCamera
+        if not cam then return CFrame.identity end
+        local cf = cam.CFrame
+        return CFrame.fromMatrix(Vector3.new(0,0,0), cf.RightVector, cf.UpVector, -cf.LookVector)
+    end
+
+    local function setOrientationEnabledFly(enabled)
+        if flyAlignOrientation then pcall(function() flyAlignOrientation.Enabled = enabled end) end
+    end
+
+    local function refreshFlyCaches()
+        if not lp.Character then
+            cachedHumanoid = nil
+            cachedRoot = nil
+            return
+        end
+        cachedHumanoid = lp.Character:FindFirstChildOfClass("Humanoid")
+        cachedRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function ensureFlyComponents(root)
+        if not root then return false end
+        local valid = flyAttachment and flyAttachment.Parent == root and
+                      flyLinearVelocity and flyLinearVelocity.Parent == root and
+                      flyAlignOrientation and flyAlignOrientation.Parent == root
+        if valid then return true end
+        
+        local oldAtt, oldLV, oldAO = flyAttachment, flyLinearVelocity, flyAlignOrientation
+        
+        flyAttachment = Instance.new("Attachment")
+        flyAttachment.Name = "LinhFlyAttachment"
+        
+        flyLinearVelocity = Instance.new("LinearVelocity")
+        flyLinearVelocity.Name = "LinhFlyLinearVelocity"
+        flyLinearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+        flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0)
+        flyLinearVelocity.Attachment0 = flyAttachment
+        flyLinearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+        
+        flyAlignOrientation = Instance.new("AlignOrientation")
+        flyAlignOrientation.Name = "LinhFlyAlignOrientation"
+        flyAlignOrientation.RigidityEnabled = true
+        flyAlignOrientation.Responsiveness = 55
+        flyAlignOrientation.Attachment0 = flyAttachment
+        
+        flyAttachment.Parent = root
+        flyLinearVelocity.Parent = root
+        flyAlignOrientation.Parent = root
+        
+        if oldAtt then pcall(function() oldAtt:Destroy() end) end
+        if oldLV then pcall(function() oldLV:Destroy() end) end
+        if oldAO then pcall(function() oldAO:Destroy() end) end
+        return true
+    end
+
+    local function pauseFlyState()
+        pcall(function()
+            if flyLinearVelocity then flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0) end
+            setOrientationEnabledFly(false)
+            if flyConn then flyConn:Disconnect(); flyConn = nil end
+            if cameraConn then cameraConn:Disconnect(); cameraConn = nil end
+        end)
+        clearConnection("FlightEngineLoop")
+        clearConnection("CameraOrientationLoop")
+    end
+
+    local function resumeFlyState()
+        if not state.flying or not lp.Character then return false end
+        
+        local ok = pcall(function()
+            refreshFlyCaches()
+            if not cachedHumanoid or not cachedRoot then error("No humanoid/root") end
+            if not ensureFlyComponents(cachedRoot) then error("Failed components") end
+            setOrientationEnabledFly(true)
+            
+            if flyConn then flyConn:Disconnect() end
+            if cameraConn then cameraConn:Disconnect() end
+            
+            flyConn = RunService.Heartbeat:Connect(function()
+                if not state.flying or not lp.Character then
+                    pauseFlyState()
+                    return
+                end
+                if not cachedRoot or cachedRoot.Parent ~= lp.Character then
+                    refreshFlyCaches()
+                    if not cachedRoot then pauseFlyState(); return end
+                end
+                if flyAttachment and flyAttachment.Parent ~= cachedRoot then
+                    ensureFlyComponents(cachedRoot)
+                end
+                
+                local cam = Workspace.CurrentCamera
+                if not cam then return end
+                local camCF = cam.CFrame
+                local moveDir = Vector3.new(0,0,0)
+                
+                if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camCF.LookVector end
+                if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camCF.LookVector end
+                if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camCF.RightVector end
+                if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camCF.RightVector end
+                if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
+                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
+                
+                if moveDir.Magnitude > 0 then
+                    moveDir = moveDir.Unit * state.flySpeed
+                end
+                
+                if flyLinearVelocity then
+                    flyLinearVelocity.VectorVelocity = moveDir
+                end
+            end)
+            
+            cameraConn = RunService.RenderStepped:Connect(function()
+                if not state.flying or not lp.Character then return end
+                if flyAlignOrientation and flyAlignOrientation.Parent then
+                    flyAlignOrientation.CFrame = getCameraRotationFly()
+                end
+            end)
+            
+            registerConnection("FlightEngineLoop", flyConn)
+            registerConnection("CameraOrientationLoop", cameraConn)
+        end)
+        return ok
+    end
+
+    local function stopFly()
+        state.flying = false
+        pauseFlyState()
+        if lp.Character then
+            local root = lp.Character:FindFirstChild("HumanoidRootPart")
+            if root then pcall(function() root.AssemblyLinearVelocity = Vector3.new(0,0,0) end) end
+        end
+    end
+
+    -- ========== UPDATE OBJECT SCANNER UI ==========
+    local function updateObjectScannerUI()
+        if not selectedPart or not selectedPart.Parent then
+            if selectedPartName then selectedPartName.Text = "Selected: None" end
+            if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
+            if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end); activeSelectionBox = nil end
+            if updateAnchoredButtonUI then updateAnchoredButtonUI() end
+            return
+        end
+        if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(selectedPart.Name, 1, 16) end
+        local ownerStr = getPartNetworkOwner(selectedPart)
+        local distStr = "Infinite"
+        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+            local r = lp.Character.HumanoidRootPart
+            distStr = string.format("%d studs", math.floor((selectedPart.Position - r.Position).Magnitude))
+        end
+        local anchoredStr = selectedPart.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
+        if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
+        if updateAnchoredButtonUI then updateAnchoredButtonUI() end
+    end
+
+    local function applySelectionBoxToPart(part)
+        if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end) end
+        activeSelectionBox = nil
+        if not part then return end
+        activeSelectionBox = C("SelectionBox", {
+            Color3 = Color3.fromRGB(0,255,255),
+            LineThickness = 0.05,
+            Adornee = part
+        }, screen)
+    end
+
+    -- ========== UI CORE ==========
     local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Global, DisplayOrder = 9999 }, pg)
     win = C("Frame", { Name = "Window", Size = Config.UI_WINDOW_SIZE, Position = UDim2.fromScale(0.08, 0.15), BackgroundColor3 = Config.THEMES.Dark.Primary, BorderSizePixel = 0, Active = true }, screen)
     C("UICorner", { CornerRadius = UDim.new(0,14) }, win)
@@ -356,8 +709,7 @@
         end
 
         if draggingFlySpeed and flySpeedBar and flySpeedKnob then
-            local barX, barW = flySpeedBar.AbsolutePosition.X, flySpeedBar.AbsoluteSize.X
-            if barW > 0 then
+            local barX, barW = flySpeedBar.AbsolutePosition.X, flySpeedBar.AbsoluteSize.X            if barW > 0 then
                 local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
                 state.flySpeed = math.floor(Config.FLY_SPEED_MIN + rel * (Config.FLY_SPEED_MAX - Config.FLY_SPEED_MIN))
                 flySpeedKnob.Position = UDim2.new(rel, -7, 0.5, -7)
@@ -396,7 +748,7 @@
         end)
     end
 
-    -- Speed
+    -- Speed UI
     local speedRow = TabRow(1, "WalkSpeed Hack")
     speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBtn)
@@ -424,205 +776,7 @@
         applyCharacterPhysics(lp.Character)
     end)
 
-    -- ====================================================================
-    -- JUMP MODULE (GIỮ NGUYÊN)
-    -- ====================================================================
-    local function detectJumpMethod(humanoid)
-        return humanoid.UseJumpPower and "Power" or "Height"
-    end
-
-    local function enforceJumpValue(humanoid)
-        if not state.jumpEnabled then return end
-        if not humanoid or not isHumanoidValid(humanoid) then return end
-
-        local now = time()
-        if now - lastJumpReset < Config.JUMP_THROTTLE then return end
-        lastJumpReset = now
-
-        local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
-
-        isInternalUpdate = true
-        local success, err = pcall(function()
-            if currentJumpMethod == "Height" then
-                if humanoid.JumpHeight ~= targetValue then
-                    humanoid.JumpHeight = targetValue
-                    humanoid.UseJumpPower = false
-                end
-            else
-                if humanoid.JumpPower ~= targetValue then
-                    humanoid.JumpPower = targetValue
-                    humanoid.UseJumpPower = true
-                end
-            end
-        end)
-        isInternalUpdate = false
-
-        if not success then
-            warn("[Jump] Enforce failed: " .. tostring(err))
-        end
-    end
-
-    local function safeJumpHook()
-        if not lp.Character then return false end
-
-        local hum = lp.Character:FindFirstChildOfClass("Humanoid")
-        local root = lp.Character:FindFirstChild("HumanoidRootPart")
-
-        if not hum or not root then return false end
-        if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
-        if hum:GetState() == Enum.HumanoidStateType.Jumping then return false end
-
-        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-
-        if currentJumpMethod == "Height" then
-            pcall(function()
-                local currentVel = root.AssemblyLinearVelocity
-                local jumpVel = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER) / 2.5
-                root.AssemblyLinearVelocity = Vector3.new(currentVel.X, jumpVel, currentVel.Z)
-            end)
-        end
-
-        return true
-    end
-
-    local function setupJumpPatch(character)
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
-
-        currentHumanoid = humanoid
-        currentJumpMethod = detectJumpMethod(humanoid)
-
-        local propertyName = (currentJumpMethod == "Height") and "JumpHeight" or "JumpPower"
-
-        clearConnection("JumpPropertyListener")
-
-        local propertyConn = humanoid:GetPropertyChangedSignal(propertyName):Connect(function()
-            if isInternalUpdate then return end
-            if not state.jumpEnabled then return end
-
-            local currentValue = (currentJumpMethod == "Height") and humanoid.JumpHeight or humanoid.JumpPower
-            local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
-
-            if currentValue ~= targetValue then
-                enforceJumpValue(humanoid)
-            end
-        end)
-        registerConnection("JumpPropertyListener", propertyConn)
-
-        task.defer(function()
-            if humanoid and isHumanoidValid(humanoid) then
-                enforceJumpValue(humanoid)
-            end
-        end)
-    end
-
-    local function onCharacterAdded(character)
-        jumpCount = 0
-        local humanoid = character:WaitForChild("Humanoid", 5)
-        if humanoid then
-            setupJumpPatch(character)
-        end
-    end
-
-    clearConnection("JumpPatchCharacterAdded")
-    local jumpPatchConn = lp.CharacterAdded:Connect(onCharacterAdded)
-    registerConnection("JumpPatchCharacterAdded", jumpPatchConn)
-
-    if lp.Character then
-        task.defer(function()
-            if lp.Character then
-                local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    setupJumpPatch(lp.Character)
-                end
-            end
-        end)
-    end
-
-    clearConnection("JumpRequest")
-    local jumpRequestConn = UIS.JumpRequest:Connect(function()
-        if not lp.Character then return end
-        if state.infJump then
-            safeJumpHook()
-        elseif state.multiJump and jumpCount < maxJumps then
-            safeJumpHook()
-        end
-    end)
-    registerConnection("JumpRequest", jumpRequestConn)
-
-    local function hookMultiJumpState(char)
-        clearConnection("MultiJumpState")
-        if not char then return end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            local conn = hum.StateChanged:Connect(function(_, newState)
-                if newState == Enum.HumanoidStateType.Landed then
-                    jumpCount = 0
-                elseif newState == Enum.HumanoidStateType.Jumping then
-                    jumpCount = jumpCount + 1
-                end
-            end)
-            registerConnection("MultiJumpState", conn)
-        else
-            local conn = char.ChildAdded:Connect(function(child)
-                if child:IsA("Humanoid") then
-                    local stateConn = child.StateChanged:Connect(function(_, newState)
-                        if newState == Enum.HumanoidStateType.Landed then
-                            jumpCount = 0
-                        elseif newState == Enum.HumanoidStateType.Jumping then
-                            jumpCount = jumpCount + 1
-                        end
-                    end)
-                    registerConnection("MultiJumpState", stateConn)
-                    conn:Disconnect()
-                end
-            end)
-            registerConnection("MultiJumpState", conn)
-        end
-    end
-
-    -- ====================================================================
-    -- PHYSICS
-    -- ====================================================================
-    local function applyCharacterPhysics(char)
-        if not char then return end
-        if not lp.Character then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum or not isHumanoidValid(hum) then return end
-        if hum:GetState() == Enum.HumanoidStateType.Dead then return end
-
-        hum.WalkSpeed = state.speedOn and state.speedValue or 16
-        hum.UseJumpPower = true
-
-        local targetJump = state.jumpEnabled and state.jumpHeight or 50
-        hum.JumpPower = math.min(targetJump, Config.MAX_SAFE_JUMP_POWER)
-    end
-
-    local function refreshCharacterPartsCache(char)
-        table.clear(characterPartsCache)
-        if not char then return end
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                table.insert(characterPartsCache, part)
-                if originalCollisions[part] == nil then
-                    originalCollisions[part] = part.CanCollide
-                end
-            end
-        end
-    end
-
-    local sHeartbeat = RunService.Heartbeat:Connect(function()
-        if state.speedOn and lp.Character then
-            local hum = lp.Character:FindFirstChildOfClass("Humanoid")
-            if hum and isHumanoidValid(hum) and math.abs(hum.WalkSpeed - state.speedValue) > 1 then
-                hum.WalkSpeed = state.speedValue
-            end
-        end
-    end)
-    registerConnection("SpeedHeartbeat", sHeartbeat)
-
-    -- JUMP UI
+    -- Jump UI
     local jumpHeightRow = TabRow(1, "Jump Height")
     jumpBtn = C("TextButton", { Parent = jumpHeightRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, jumpBtn)
@@ -678,9 +832,7 @@
         TweenService:Create(multiJumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.multiJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
     end)
 
-    -- ====================================================================
-    -- NOCLIP (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- Noclip UI
     local noclipMasterRow = TabRow(1, "Noclip Core")
     noclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Noclip: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, noclipBtn)
@@ -760,9 +912,7 @@
     end)
     registerConnection("NoclipEngine", noclipConn)
 
-    -- ====================================================================
-    -- ESP MODULE (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- ESP UI
     local espRowMaster = TabRow(2, "Player ESP Core")
     espBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,75,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, espBtn)
@@ -803,6 +953,7 @@
     lootEspBtn = C("TextButton", { Parent = lootRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Loot/Chest ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, lootEspBtn)
 
+    -- ESP FUNCTIONS
     local function getESPColor(plr)
         if lp.Team and plr.Team then
             return (plr.Team == lp.Team) and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
@@ -1034,9 +1185,7 @@
     end)
     registerConnection("ESPRenderLoop", espRenderConn)
 
-    -- ====================================================================
-    -- LOOT ESP (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- LOOT ESP
     local function isLootInstance(instance)
         if not instance:IsA("BasePart") then return false end
         local nameLower = string.lower(instance.Name)
@@ -1204,9 +1353,7 @@
     registerConnection("PlayerAddedESP", pAddedConn)
     registerConnection("PlayerRemovingESP", pRemovingConn)
 
-    -- ====================================================================
-    -- FLY SYSTEM (CHỈ PC, BỎ HOÀN TOÀN MOBILE)
-    -- ====================================================================
+    -- FLY UI
     local flyRowSys = TabRow(3, "Premium Flight Engine")
     flyBtn = C("TextButton", { Parent = flyRowSys, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "FLY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
@@ -1226,146 +1373,6 @@
             draggingFlySpeed = true
         end
     end)
-
-    -- FLY CORE (Chỉ PC, không mobile)
-    local RUN_SERVICE_PHYSICS = RunService.Heartbeat
-    local RUN_SERVICE_CAMERA = RunService.RenderStepped
-    local DEFAULT_RESPONSIVENESS = 55
-
-    local function getCameraRotationFly()
-        local cam = Workspace.CurrentCamera
-        if not cam then return CFrame.identity end
-        local cf = cam.CFrame
-        return CFrame.fromMatrix(Vector3.new(0,0,0), cf.RightVector, cf.UpVector, -cf.LookVector)
-    end
-
-    local function setOrientationEnabledFly(enabled)
-        if flyAlignOrientation then pcall(function() flyAlignOrientation.Enabled = enabled end) end
-    end
-
-    local function refreshFlyCaches()
-        if not lp.Character then
-            cachedHumanoid = nil
-            cachedRoot = nil
-            return
-        end
-        cachedHumanoid = lp.Character:FindFirstChildOfClass("Humanoid")
-        cachedRoot = lp.Character:FindFirstChild("HumanoidRootPart")
-    end
-
-    local function ensureFlyComponents(root)
-        if not root then return false end
-        local valid = flyAttachment and flyAttachment.Parent == root and
-                      flyLinearVelocity and flyLinearVelocity.Parent == root and
-                      flyAlignOrientation and flyAlignOrientation.Parent == root
-        if valid then return true end
-        
-        local oldAtt, oldLV, oldAO = flyAttachment, flyLinearVelocity, flyAlignOrientation
-        
-        flyAttachment = Instance.new("Attachment")
-        flyAttachment.Name = "LinhFlyAttachment"
-        
-        flyLinearVelocity = Instance.new("LinearVelocity")
-        flyLinearVelocity.Name = "LinhFlyLinearVelocity"
-        flyLinearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-        flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0)
-        flyLinearVelocity.Attachment0 = flyAttachment
-        flyLinearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
-        
-        flyAlignOrientation = Instance.new("AlignOrientation")
-        flyAlignOrientation.Name = "LinhFlyAlignOrientation"
-        flyAlignOrientation.RigidityEnabled = true
-        flyAlignOrientation.Responsiveness = DEFAULT_RESPONSIVENESS
-        flyAlignOrientation.Attachment0 = flyAttachment
-        
-        flyAttachment.Parent = root
-        flyLinearVelocity.Parent = root
-        flyAlignOrientation.Parent = root
-        
-        if oldAtt then pcall(function() oldAtt:Destroy() end) end
-        if oldLV then pcall(function() oldLV:Destroy() end) end
-        if oldAO then pcall(function() oldAO:Destroy() end) end
-        return true
-    end
-
-    local function pauseFlyState()
-        pcall(function()
-            if flyLinearVelocity then flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0) end
-            setOrientationEnabledFly(false)
-            if flyConn then flyConn:Disconnect(); flyConn = nil end
-            if cameraConn then cameraConn:Disconnect(); cameraConn = nil end
-        end)
-        clearConnection("FlightEngineLoop")
-        clearConnection("CameraOrientationLoop")
-    end
-
-    local function resumeFlyState()
-        if not state.flying or not lp.Character then return false end
-        
-        local ok = pcall(function()
-            refreshFlyCaches()
-            if not cachedHumanoid or not cachedRoot then error("No humanoid/root") end
-            if not ensureFlyComponents(cachedRoot) then error("Failed components") end
-            setOrientationEnabledFly(true)
-            
-            if flyConn then flyConn:Disconnect() end
-            if cameraConn then cameraConn:Disconnect() end
-            
-            flyConn = RUN_SERVICE_PHYSICS:Connect(function()
-                if not state.flying or not lp.Character then
-                    pauseFlyState()
-                    return
-                end
-                if not cachedRoot or cachedRoot.Parent ~= lp.Character then
-                    refreshFlyCaches()
-                    if not cachedRoot then pauseFlyState(); return end
-                end
-                if flyAttachment and flyAttachment.Parent ~= cachedRoot then
-                    ensureFlyComponents(cachedRoot)
-                end
-                
-                local cam = Workspace.CurrentCamera
-                if not cam then return end
-                local camCF = cam.CFrame
-                local moveDir = Vector3.new(0,0,0)
-                
-                if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camCF.LookVector end
-                if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camCF.LookVector end
-                if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camCF.RightVector end
-                if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camCF.RightVector end
-                if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
-                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
-                
-                if moveDir.Magnitude > 0 then
-                    moveDir = moveDir.Unit * state.flySpeed
-                end
-                
-                if flyLinearVelocity then
-                    flyLinearVelocity.VectorVelocity = moveDir
-                end
-            end)
-            
-            cameraConn = RUN_SERVICE_CAMERA:Connect(function()
-                if not state.flying or not lp.Character then return end
-                if flyAlignOrientation and flyAlignOrientation.Parent then
-                    flyAlignOrientation.CFrame = getCameraRotationFly()
-                end
-            end)
-            
-            registerConnection("FlightEngineLoop", flyConn)
-            registerConnection("CameraOrientationLoop", cameraConn)
-        end)
-        return ok
-    end
-
-    local function stopFly()
-        state.flying = false
-        pauseFlyState()
-        if lp.Character then
-            local root = lp.Character:FindFirstChild("HumanoidRootPart")
-            if root then pcall(function() root.AssemblyLinearVelocity = Vector3.new(0,0,0) end) end
-        end
-    end
 
     local function toggleFlyState()
         state.flying = not state.flying
@@ -1401,9 +1408,7 @@
         if state.flying then resumeFlyState() end
     end
 
-    -- ====================================================================
-    -- XRAY SYSTEM (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- XRAY UI
     local xrayRow = TabRow(3, "Environment XRay")
     xrayBtnUI = C("TextButton", { Parent = xrayRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "XRAY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
     C("UICorner", { CornerRadius = UDim.new(0,8) }, xrayBtnUI)
@@ -1462,11 +1467,10 @@
             cleanXray()
         end
     end
+
     xrayBtnUI.MouseButton1Click:Connect(toggleXrayState)
 
-    -- ====================================================================
-    -- BRING PART & OBJECT SCANNER (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- BRING PART UI
     local scannerTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
     C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Premium Object Scanner & Bring Tool ---", TextColor3 = Color3.fromRGB(150,130,220), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, scannerTitleRow)
 
@@ -1585,37 +1589,6 @@
         if partInfoLabel then partInfoLabel.Text = originalAnchoredState and "🔒 Restored anchored state!" or "🔓 Restored unanchored state!" end
         updateObjectScannerUI()
     end)
-
-    local function applySelectionBoxToPart(part)
-        if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end) end
-        activeSelectionBox = nil
-        if not part then return end
-        activeSelectionBox = C("SelectionBox", {
-            Color3 = Color3.fromRGB(0,255,255),
-            LineThickness = 0.05,
-            Adornee = part
-        }, screen)
-    end
-
-    local function updateObjectScannerUI()
-        if not selectedPart or not selectedPart.Parent then
-            if selectedPartName then selectedPartName.Text = "Selected: None" end
-            if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
-            applySelectionBoxToPart(nil)
-            updateAnchoredButtonUI()
-            return
-        end
-        if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(selectedPart.Name, 1, 16) end
-        local ownerStr = getPartNetworkOwner(selectedPart)
-        local distStr = "Infinite"
-        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-            local r = lp.Character.HumanoidRootPart
-            distStr = string.format("%d studs", math.floor((selectedPart.Position - r.Position).Magnitude))
-        end
-        local anchoredStr = selectedPart.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
-        if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
-        updateAnchoredButtonUI()
-    end
 
     searchByNameBtn.MouseButton1Click:Connect(function()
         local name = partNameBox.Text
@@ -1739,9 +1712,7 @@
         end)
     end)
 
-    -- ====================================================================
-    -- PHYSICS SANDBOX (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- PHYSICS SANDBOX
     local sandboxTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
     C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Physics Sandbox Environment ---", TextColor3 = Color3.fromRGB(210,120,40), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, sandboxTitleRow)
 
@@ -1817,9 +1788,7 @@
     end)
     registerConnection("PhysicsSandboxCore", physicsSandboxConn)
 
-    -- ====================================================================
-    -- INITIALIZATION (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- INITIALIZATION
     local function setupCharacterSignals(char)
         clearConnection("CharDescendantAdded")
         clearConnection("CharDescendantRemoving")
@@ -1868,17 +1837,13 @@
     end
     pcall(loadUIPreset)
 
-    -- ====================================================================
-    -- SECURITY (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- SECURITY
     local function periodicVerification()
         while state.scriptEnabled do
             task.wait(Config.SECURITY_HEARTBEAT)
             local allowed = false
             for _, id in ipairs(Config.ALLOWED_USER_IDS) do
-                if id == lp.UserId then
-                    allowed = true
-                end
+                if id == lp.UserId then allowed = true end
             end
             if not allowed then
                 warn("[Security] Unauthorized modification detected! Shutting down.")
@@ -1889,9 +1854,7 @@
 
     task.spawn(periodicVerification)
 
-    -- ====================================================================
-    -- MENU TOGGLE (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- MENU TOGGLE
     CAS:BindAction("ToggleMenu_RShift", function(_, actionState)
         if UIS:GetFocusedTextBox() then return end
         if actionState == Enum.UserInputState.Begin then
@@ -1913,9 +1876,7 @@
         toggleBtn.Text = state.hidden and "Show" or "Hide"
     end)
 
-    -- ====================================================================
-    -- CLEANUP (GIỮ NGUYÊN)
-    -- ====================================================================
+    -- CLEANUP
     cleanupAll = function()
         print("[System] Unloading...")
         state.scriptEnabled = false
