@@ -1,58 +1,39 @@
 (function()
-    print("Linh Script Premium v10.7.25 - COMPLETE EDITION (Stable)")
+    print("Linh Script Premium v10.7.25 - PC ULTIMATE EDITION (FINAL FIX)")
 
+    -- ==================== SERVICES ====================
     local Players = game:GetService("Players")
-    local TweenService = game:GetService("TweenService")
-    local UIS = game:GetService("UserInputService")
-    local CAS = game:GetService("ContextActionService")
     local RunService = game:GetService("RunService")
+    local UIS = game:GetService("UserInputService")
     local Workspace = game:GetService("Workspace")
+    local CoreGui = game:GetService("CoreGui")
     local CollectionService = game:GetService("CollectionService")
     local HttpService = game:GetService("HttpService")
+    local TeleportService = game:GetService("TeleportService")
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    local TweenService = game:GetService("TweenService")
+    local CAS = game:GetService("ContextActionService")
 
     local lp = Players.LocalPlayer
     local pg = lp:WaitForChild("PlayerGui")
 
-    -- CONFIG
+    -- ==================== CONFIG ====================
     local Config = {
         PROTECT = false,
         ALLOWED_USER_IDS = { 7651295755, 7361198469 },
-        SECURITY_HEARTBEAT = 30,
         MAX_SAFE_JUMP_POWER = 180,
         MAX_SAFE_WALK_SPEED = 500,
         ESP_DISTANCE = 500,
         ESP_FILL_TRANSPARENCY = 0.5,
-        ESP_UPDATE_INTERVAL = 0.06,
-        ESP_DIST_MIN = 50,
-        ESP_DIST_MAX = 3500,
         LOOT_SCAN_RADIUS = 400,
         LOOT_MAX_RENDER = 35,
-        LOOT_TAG = "LootableObject_v10_7",
         LOOT_KEYWORDS = { "chest", "loot", "dropped", "item", "coin", "gem", "crate", "supply" },
-        XRAY_TAG = "XrayManaged_v10_7",
         XRAY_INTENSITY = 0.65,
-        XRAY_BATCH_SIZE = 250,
-        PHYSICS_THROTTLE_FPS = 1 / 30,
-        FORCE_UPDATE_INTERVAL = 2,
-        JUMP_THROTTLE = 0.15,
         FLY_DEFAULT_SPEED = 60,
         FLY_SPEED_MIN = 20,
         FLY_SPEED_MAX = 300,
-        THEMES = {
-            Dark = { Primary = Color3.fromRGB(30,30,35), Accent = Color3.fromRGB(90,63,150), Text = Color3.fromRGB(235,235,240) },
-            Pink = { Primary = Color3.fromRGB(248,224,245), Accent = Color3.fromRGB(255,111,206), Text = Color3.fromRGB(60,60,60) }
-        },
-        DEFAULT_THEME = "Dark",
-        UI_WINDOW_SIZE = UDim2.fromOffset(460, 750),
-        UI_SCROLL_CANVAS = UDim2.new(0,0,0,950),
     }
 
-    local ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE
-    local XRAY_TAG = Config.XRAY_TAG
-    local LOOT_TAG = Config.LOOT_TAG
-    local LOOT_RADIUS_SQ = Config.LOOT_SCAN_RADIUS * Config.LOOT_SCAN_RADIUS
-
-    -- WHITELIST
     if Config.PROTECT then
         local allowed = false
         for _, id in ipairs(Config.ALLOWED_USER_IDS) do
@@ -61,78 +42,59 @@
         if not allowed then return end
     end
 
-    -- KIỂM TRA EXISTING
-    local existing = pg:FindFirstChild("MenuUI")
-    if existing then pcall(function() existing:Destroy() end) end
-
-    -- SAFE PCALL
-    local function safePCall(func, errorMsg)
-        local success, result = pcall(func)
-        if not success then warn("[SafePCall] " .. (errorMsg or "Unknown") .. ": " .. tostring(result)) end
-        return success, result
+    -- ==================== DỌN RÁC TỪ LẦN CHẠY TRƯỚC ====================
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v.Name == "LinhFlyAttachment" or v.Name == "LinhFlyLinearVelocity" or v.Name == "LinhFlyAlignOrientation" then
+            pcall(function() v:Destroy() end)
+        end
     end
 
-    -- ====================================================================
-    -- STATE
-    -- ====================================================================
+    -- ==================== STATE ====================
     local state = {
-        hidden = false, speedOn = false, speedValue = 100,
+        speedOn = false, speedValue = 100,
         jumpEnabled = false, jumpHeight = 100, infJump = false, multiJump = false,
-        noclip = false, silentNoclip = false, esp = false, xray = false,
-        flying = false, flySpeed = Config.FLY_DEFAULT_SPEED, flyMethod = "LinearVel",
-        espMode = "Both", espFilter = "All", lootEspEnabled = false,
-        xrayIntensity = Config.XRAY_INTENSITY, lockToMeEnabled = false, freezeEnabled = false,
-        scriptEnabled = true, lootPipelineActive = true,
+        noclip = false, silentNoclip = false,
+        esp = false, lootEsp = false, xray = false,
+        flying = false, flySpeed = Config.FLY_DEFAULT_SPEED, flyMode = "Physics",
+        xrayIntensity = Config.XRAY_INTENSITY,
+        lockToMeEnabled = false, freezeEnabled = false,
+        scriptEnabled = true,
     }
 
-    local jumpCount = 0
-    local maxJumps = 2
-    local lastPhysicsUpdate = 0
-    local lastForceUpdate = 0
-    local lastPosition = nil
-    local currentHumanoid = nil
-    local isInternalUpdate = false
-    local currentJumpMethod = "Power"
-    local lastJumpReset = 0
+    local misc = {
+        antiAFK = true,
+        rejoinKick = false,
+        autoRejoin = false,
+        guiOpacity = 0.95,
+        autoSave = true,
+    }
 
+    -- Lưu giá trị gốc của game để khôi phục
+    local originalWalkSpeed = 16
+    local originalJumpSettings = { UseJumpPower = true, JumpPower = 50, JumpHeight = 7.2 }
+    local jumpLockConnection = nil
+    local speedHeartbeatConn = nil
+
+    -- ==================== CONNECTION MANAGER ====================
     local ConnectionRegistry = {}
-    local espData = {}
-    local lootRegistry = {}
-    local originalCollisions = {}
-    local characterPartsCache = {}
-    local xrayOriginalParts = {}
-    local overlapParams = OverlapParams.new()
+    local function registerConnection(id, conn)
+        if ConnectionRegistry[id] then
+            pcall(function() ConnectionRegistry[id]:Disconnect() end)
+            ConnectionRegistry[id] = nil
+        end
+        ConnectionRegistry[id] = conn
+        return conn
+    end
+    local function clearConnection(id)
+        if ConnectionRegistry[id] then
+            pcall(function() ConnectionRegistry[id]:Disconnect() end)
+            ConnectionRegistry[id] = nil
+        end
+    end
 
-    -- FLY variables (PC only)
-    local flyLinearVelocity = nil
-    local flyAlignOrientation = nil
-    local flyAttachment = nil
-    local flyConn = nil
-    local cameraConn = nil
-    local cachedHumanoid = nil
-    local cachedRoot = nil
-
-    -- Bring Part
-    local selectedPart = nil
-    local lastSelectedPart = nil 
-    local activeSelectionBox = nil 
-
-    -- UI Elements
-    local win, header, stroke, title
-    local distBar, distKnob, distValue, fillBar, fillKnob, fillValue, jumpBar, jumpKnob, jumpValue
-    local xrayBar, xrayKnob, xrayValue, flySpeedBar, flySpeedKnob, flySpeedValue 
-    local speedNum, speedBtn, jumpBtn, infBtn, multiJumpBtn, noclipBtn, silentNoclipBtn, espBtn, espFilterBtn, espModeBtn, flyBtn, flyMethodBtn, xrayBtnUI, lootEspBtn
-    local selectPartBtn, partNameBox, searchByNameBtn, selectedPartName, partInfoLabel, bringBtn, bringAllBtn, tpToPartBtn, reselectLastBtn
-    local lockToMeBtn, freezeBtn, toggleAnchoredBtn, resetAnchoredBtn
-    local draggingWindow, draggingDist, draggingFill, draggingJump, draggingXray, draggingFlySpeed = false, false, false, false, false, false
-    local dragStart, startPos = nil, nil
-    local currentThemeName = Config.DEFAULT_THEME
-
-    -- ====================================================================
-    -- ĐỊNH NGHĨA CÁC HÀM TRƯỚC KHI DÙNG (QUAN TRỌNG)
-    -- ====================================================================
+    -- ==================== HELPER FUNCTIONS ====================
     local function getRoot(char) return char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart) end
-    local function isHumanoidValid(hum) return hum and hum.Parent and hum.Parent:IsA("Model") and hum.Parent.Parent == Workspace end
+    local function isHumanoidValid(h) return h and h.Parent and h.Parent:IsA("Model") and h.Parent.Parent == Workspace end
 
     local function getPartNetworkOwner(part)
         if not part then return "Invalid" end
@@ -161,203 +123,267 @@
         return obj
     end
 
-    local function registerConnection(id, conn)
-        if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
-        ConnectionRegistry[id] = conn
-        return conn
+    -- ==================== SAVE/LOAD ====================
+    local CONFIG_KEY = "LinhScriptPremiumConfig.json"
+    local function hasFileIO() return type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function" end
+    
+    local function SaveConfig()
+        if not misc.autoSave or not hasFileIO() then return end
+        pcall(function()
+            writefile(CONFIG_KEY, HttpService:JSONEncode({
+                speedOn = state.speedOn, speedValue = state.speedValue,
+                jumpEnabled = state.jumpEnabled, jumpHeight = state.jumpHeight,
+                infJump = state.infJump, multiJump = state.multiJump,
+                noclip = state.noclip, silentNoclip = state.silentNoclip,
+                esp = state.esp, lootEsp = state.lootEsp, xray = state.xray,
+                flySpeed = state.flySpeed, flyMode = state.flyMode,
+                xrayIntensity = state.xrayIntensity,
+                lockToMeEnabled = state.lockToMeEnabled, freezeEnabled = state.freezeEnabled,
+                antiAFK = misc.antiAFK, rejoinKick = misc.rejoinKick, autoRejoin = misc.autoRejoin,
+                guiOpacity = misc.guiOpacity,
+            }))
+        end)
     end
-
-    local function clearConnection(id)
-        if ConnectionRegistry[id] then pcall(function() ConnectionRegistry[id]:Disconnect() end) end
-        ConnectionRegistry[id] = nil
-    end
-
-    -- ========== APPLY CHARACTER PHYSICS ==========
-    local function applyCharacterPhysics(char)
-        if not char then return end
-        if not lp.Character then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum or not isHumanoidValid(hum) then return end
-        if hum:GetState() == Enum.HumanoidStateType.Dead then return end
-
-        hum.WalkSpeed = state.speedOn and state.speedValue or 16
-        hum.UseJumpPower = true
-
-        local targetJump = state.jumpEnabled and state.jumpHeight or 50
-        hum.JumpPower = math.min(targetJump, Config.MAX_SAFE_JUMP_POWER)
-    end
-
-    -- ========== JUMP MODULE ==========
-    local function detectJumpMethod(humanoid)
-        return humanoid.UseJumpPower and "Power" or "Height"
-    end
-
-    local function enforceJumpValue(humanoid)
-        if not state.jumpEnabled then return end
-        if not humanoid or not isHumanoidValid(humanoid) then return end
-
-        local now = time()
-        if now - lastJumpReset < Config.JUMP_THROTTLE then return end
-        lastJumpReset = now
-
-        local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
-
-        isInternalUpdate = true
-        local success, err = pcall(function()
-            if currentJumpMethod == "Height" then
-                if humanoid.JumpHeight ~= targetValue then
-                    humanoid.JumpHeight = targetValue
-                    humanoid.UseJumpPower = false
-                end
-            else
-                if humanoid.JumpPower ~= targetValue then
-                    humanoid.JumpPower = targetValue
-                    humanoid.UseJumpPower = true
+    
+    local function LoadConfig()
+        if not hasFileIO() then return end
+        pcall(function()
+            if isfile(CONFIG_KEY) then
+                local data = HttpService:JSONDecode(readfile(CONFIG_KEY))
+                if type(data) == "table" then
+                    for k, v in pairs(data) do
+                        if state[k] ~= nil then state[k] = v end
+                        if misc[k] ~= nil then misc[k] = v end
+                    end
                 end
             end
         end)
-        isInternalUpdate = false
+    end
+    LoadConfig()
 
-        if not success then
-            warn("[Jump] Enforce failed: " .. tostring(err))
+    -- ==================== SPEED SYSTEM (FIXED) ====================
+    local function applySpeed()
+        local char = lp.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        
+        if state.speedOn then
+            hum.WalkSpeed = state.speedValue
+        else
+            hum.WalkSpeed = originalWalkSpeed
         end
     end
-
-    local function safeJumpHook()
-        if not lp.Character then return false end
-
-        local hum = lp.Character:FindFirstChildOfClass("Humanoid")
-        local root = lp.Character:FindFirstChild("HumanoidRootPart")
-
-        if not hum or not root then return false end
-        if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
-        if hum:GetState() == Enum.HumanoidStateType.Jumping then return false end
-
-        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-
-        if currentJumpMethod == "Height" then
-            pcall(function()
-                local currentVel = root.AssemblyLinearVelocity
-                local jumpVel = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER) / 2.5
-                root.AssemblyLinearVelocity = Vector3.new(currentVel.X, jumpVel, currentVel.Z)
+    
+    -- Ghi nhớ tốc độ gốc khi nhân vật xuất hiện
+    local function updateOriginalSpeed(char)
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            originalWalkSpeed = hum.WalkSpeed
+        end
+    end
+    
+    -- Speed heartbeat connection (chạy liên tục khi bật)
+    local function updateSpeedHeartbeat()
+        if speedHeartbeatConn then
+            speedHeartbeatConn:Disconnect()
+            speedHeartbeatConn = nil
+        end
+        
+        if state.speedOn then
+            speedHeartbeatConn = RunService.Heartbeat:Connect(function()
+                local char = lp.Character
+                if char then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.WalkSpeed ~= state.speedValue then
+                        hum.WalkSpeed = state.speedValue
+                    end
+                end
+            end)
+            registerConnection("SpeedHeartbeat", speedHeartbeatConn)
+        end
+    end
+    
+    -- Speed property listener (phát hiện game đè)
+    local speedPropertyListener = nil
+    local function hookSpeedListener(char)
+        if speedPropertyListener then speedPropertyListener:Disconnect() end
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            speedPropertyListener = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                if state.speedOn and hum.WalkSpeed ~= state.speedValue then
+                    hum.WalkSpeed = state.speedValue
+                elseif not state.speedOn then
+                    originalWalkSpeed = hum.WalkSpeed
+                end
             end)
         end
-
-        return true
+    end
+    
+    -- Toggle speed (có lưu giá trị gốc)
+    local function toggleSpeed()
+        state.speedOn = not state.speedOn
+        
+        if state.speedOn then
+            -- Lưu tốc độ gốc trước khi thay đổi
+            local char = lp.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    originalWalkSpeed = hum.WalkSpeed
+                end
+            end
+            updateSpeedHeartbeat()
+        else
+            -- Tắt heartbeat
+            if speedHeartbeatConn then
+                speedHeartbeatConn:Disconnect()
+                speedHeartbeatConn = nil
+            end
+            clearConnection("SpeedHeartbeat")
+            -- Khôi phục tốc độ gốc
+            local char = lp.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.WalkSpeed = originalWalkSpeed
+                end
+            end
+        end
+        updateActiveCounter()
+        SaveConfig()
     end
 
-    local function setupJumpPatch(character)
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
+    -- Khởi tạo speed
+    lp.CharacterAdded:Connect(function(char)
+        updateOriginalSpeed(char)
+        hookSpeedListener(char)
+        if state.speedOn then
+            updateSpeedHeartbeat()
+        end
+    end)
+    if lp.Character then
+        updateOriginalSpeed(lp.Character)
+        hookSpeedListener(lp.Character)
+        if state.speedOn then updateSpeedHeartbeat() end
+    end
 
-        currentHumanoid = humanoid
-        currentJumpMethod = detectJumpMethod(humanoid)
+    -- ==================== JUMP MODULE ====================
+    local jumpCount = 0
+    local currentHumanoid = nil
+    local currentJumpMethod = "Power"
+    local lastJumpReset = 0
 
-        local propertyName = (currentJumpMethod == "Height") and "JumpHeight" or "JumpPower"
+    local function detectJumpMethod(hum) return hum.UseJumpPower and "Power" or "Height" end
 
-        clearConnection("JumpPropertyListener")
-
-        local propertyConn = humanoid:GetPropertyChangedSignal(propertyName):Connect(function()
-            if isInternalUpdate then return end
-            if not state.jumpEnabled then return end
-
-            local currentValue = (currentJumpMethod == "Height") and humanoid.JumpHeight or humanoid.JumpPower
-            local targetValue = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
-
-            if currentValue ~= targetValue then
-                enforceJumpValue(humanoid)
-            end
-        end)
-        registerConnection("JumpPropertyListener", propertyConn)
-
-        task.defer(function()
-            if humanoid and isHumanoidValid(humanoid) then
-                enforceJumpValue(humanoid)
-            end
+    local function lockJumpValue(hum)
+        if jumpLockConnection then jumpLockConnection:Disconnect() end
+        if not hum then return end
+        local target = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
+        jumpLockConnection = hum:GetPropertyChangedSignal("JumpPower"):Connect(function()
+            if state.jumpEnabled and hum.JumpPower ~= target then hum.JumpPower = target end
         end)
     end
 
-    local function onCharacterAdded(character)
-        jumpCount = 0
-        local humanoid = character:WaitForChild("Humanoid", 5)
-        if humanoid then
-            setupJumpPatch(character)
+    local function enforceJumpValue(hum)
+        if not state.jumpEnabled or not hum or not isHumanoidValid(hum) then return end
+        if time() - lastJumpReset < 0.15 then return end
+        lastJumpReset = time()
+        local target = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
+        if currentJumpMethod == "Height" then
+            if hum.JumpHeight ~= target then hum.JumpHeight = target; hum.UseJumpPower = false end
+        else
+            if hum.JumpPower ~= target then hum.JumpPower = target; hum.UseJumpPower = true end
+        end
+        lockJumpValue(hum)
+    end
+
+    local function restoreJumpBase()
+        if currentHumanoid and originalJumpSettings.JumpPower then
+            currentHumanoid.UseJumpPower = originalJumpSettings.UseJumpPower
+            currentHumanoid.JumpPower = originalJumpSettings.JumpPower
+            currentHumanoid.JumpHeight = originalJumpSettings.JumpHeight
+            if jumpLockConnection then jumpLockConnection:Disconnect() end
         end
     end
 
-    clearConnection("JumpPatchCharacterAdded")
-    local jumpPatchConn = lp.CharacterAdded:Connect(onCharacterAdded)
-    registerConnection("JumpPatchCharacterAdded", jumpPatchConn)
-
-    if lp.Character then
-        task.defer(function()
-            if lp.Character then
-                local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    setupJumpPatch(lp.Character)
-                end
-            end
-        end)
+    local function doJump()
+        local char = lp.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not root or hum:GetState() == Enum.HumanoidStateType.Dead then return end
+        if hum:GetState() == Enum.HumanoidStateType.Jumping then return end
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        if currentJumpMethod == "Height" then
+            local vel = root.AssemblyLinearVelocity
+            root.AssemblyLinearVelocity = Vector3.new(vel.X, state.jumpHeight / 2.5, vel.Z)
+        end
     end
 
-    clearConnection("JumpRequest")
-    local jumpRequestConn = UIS.JumpRequest:Connect(function()
-        if not lp.Character then return end
+    UIS.JumpRequest:Connect(function()
+        local char = lp.Character
+        if not char then return end
         if state.infJump then
-            safeJumpHook()
-        elseif state.multiJump and jumpCount < maxJumps then
-            safeJumpHook()
+            doJump()
+        elseif state.multiJump and jumpCount < 2 then
+            doJump()
             jumpCount = jumpCount + 1
         end
     end)
-    registerConnection("JumpRequest", jumpRequestConn)
 
-    local function hookMultiJumpState(char)
-        clearConnection("MultiJumpState")
-        if not char then return end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
+    lp.CharacterAdded:Connect(function(char)
+        jumpCount = 0
+        local hum = char:WaitForChild("Humanoid", 5)
         if hum then
-            local conn = hum.StateChanged:Connect(function(_, newState)
-                if newState == Enum.HumanoidStateType.Landed then
-                    jumpCount = 0
-                elseif newState == Enum.HumanoidStateType.Jumping then
-                    jumpCount = jumpCount + 1
-                end
+            currentHumanoid = hum
+            currentJumpMethod = detectJumpMethod(hum)
+            originalJumpSettings.UseJumpPower = hum.UseJumpPower
+            originalJumpSettings.JumpPower = hum.JumpPower
+            originalJumpSettings.JumpHeight = hum.JumpHeight
+            enforceJumpValue(hum)
+            hum.StateChanged:Connect(function(_, newState)
+                if newState == Enum.HumanoidStateType.Landed then jumpCount = 0
+                elseif newState == Enum.HumanoidStateType.Jumping then jumpCount = jumpCount + 1 end
             end)
-            registerConnection("MultiJumpState", conn)
-        else
-            local conn = char.ChildAdded:Connect(function(child)
-                if child:IsA("Humanoid") then
-                    local stateConn = child.StateChanged:Connect(function(_, newState)
-                        if newState == Enum.HumanoidStateType.Landed then
-                            jumpCount = 0
-                        elseif newState == Enum.HumanoidStateType.Jumping then
-                            jumpCount = jumpCount + 1
-                        end
-                    end)
-                    registerConnection("MultiJumpState", stateConn)
-                    conn:Disconnect()
-                end
-            end)
-            registerConnection("MultiJumpState", conn)
+        end
+        if state.noclip then refreshCharPartsCache(char) end
+        if state.flying then
+            stopFly()
+            startFly()
+        end
+    end)
+
+    if lp.Character then
+        local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            currentHumanoid = hum
+            currentJumpMethod = detectJumpMethod(hum)
+            originalJumpSettings.UseJumpPower = hum.UseJumpPower
+            originalJumpSettings.JumpPower = hum.JumpPower
+            originalJumpSettings.JumpHeight = hum.JumpHeight
+            enforceJumpValue(hum)
         end
     end
 
-    local function refreshCharacterPartsCache(char)
-        table.clear(characterPartsCache)
-        if not char then return end
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                table.insert(characterPartsCache, part)
-                if originalCollisions[part] == nil then
-                    originalCollisions[part] = part.CanCollide
-                end
-            end
-        end
-    end
+    -- ==================== FLY SYSTEM V24 (PC-ONLY, FIXED LEAKS) ====================
+    local flyLinearVel = nil
+    local flyAlignOri = nil
+    local flyAttach = nil
+    local flyHeartbeatConn = nil
+    local flyRenderConn = nil
+    local cachedHumanoid = nil
+    local cachedRoot = nil
+    local flyRebuildToken = 0
+    local isRebuilding = false
+    local resumeFailureCount = 0
+    local MAX_RESUME_FAILURE = 3
+    local rebuildRetryCount = 0
+    local MAX_REBUILD_RETRY = 10
+    local isResuming = false
+    local isBuildingComponents = false  -- Chống duplicate
 
-    -- ========== FLY SYSTEM (PC ONLY) ==========
     local function getCameraRotationFly()
         local cam = Workspace.CurrentCamera
         if not cam then return CFrame.identity end
@@ -366,1182 +392,591 @@
     end
 
     local function setOrientationEnabledFly(enabled)
-        if flyAlignOrientation then pcall(function() flyAlignOrientation.Enabled = enabled end) end
+        if flyAlignOri then pcall(function() flyAlignOri.Enabled = enabled end) end
     end
 
     local function refreshFlyCaches()
-        if not lp.Character then
+        local char = lp.Character
+        if not char then
             cachedHumanoid = nil
             cachedRoot = nil
             return
         end
-        cachedHumanoid = lp.Character:FindFirstChildOfClass("Humanoid")
-        cachedRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+        cachedHumanoid = char:FindFirstChildOfClass("Humanoid")
+        cachedRoot = char:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function cleanupFlyComponents(root)
+        if not root then return end
+        for _, v in ipairs(root:GetChildren()) do
+            local name = v.Name
+            if name == "LinhFlyAttachment" or name == "LinhFlyLinearVelocity" or name == "LinhFlyAlignOrientation" then
+                pcall(function() v:Destroy() end)
+            end
+        end
     end
 
     local function ensureFlyComponents(root)
         if not root then return false end
-        local valid = flyAttachment and flyAttachment.Parent == root and
-                      flyLinearVelocity and flyLinearVelocity.Parent == root and
-                      flyAlignOrientation and flyAlignOrientation.Parent == root
-        if valid then return true end
+        if root ~= cachedRoot then return false end
+        if root.Parent ~= lp.Character then return false end
+        if isBuildingComponents then return false end
         
-        local oldAtt, oldLV, oldAO = flyAttachment, flyLinearVelocity, flyAlignOrientation
+        isBuildingComponents = true
+        cleanupFlyComponents(root)
         
-        flyAttachment = Instance.new("Attachment")
-        flyAttachment.Name = "LinhFlyAttachment"
+        flyAttach = Instance.new("Attachment")
+        flyAttach.Name = "LinhFlyAttachment"
         
-        flyLinearVelocity = Instance.new("LinearVelocity")
-        flyLinearVelocity.Name = "LinhFlyLinearVelocity"
-        flyLinearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-        flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0)
-        flyLinearVelocity.Attachment0 = flyAttachment
-        flyLinearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+        flyLinearVel = Instance.new("LinearVelocity")
+        flyLinearVel.Name = "LinhFlyLinearVelocity"
+        flyLinearVel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+        flyLinearVel.VectorVelocity = Vector3.new(0,0,0)
+        flyLinearVel.Attachment0 = flyAttach
+        flyLinearVel.RelativeTo = Enum.ActuatorRelativeTo.World
+        flyLinearVel.Enabled = true
         
-        flyAlignOrientation = Instance.new("AlignOrientation")
-        flyAlignOrientation.Name = "LinhFlyAlignOrientation"
-        flyAlignOrientation.RigidityEnabled = true
-        flyAlignOrientation.Responsiveness = 55
-        flyAlignOrientation.Attachment0 = flyAttachment
+        flyAlignOri = Instance.new("AlignOrientation")
+        flyAlignOri.Name = "LinhFlyAlignOrientation"
+        flyAlignOri.RigidityEnabled = true
+        flyAlignOri.Responsiveness = 55
+        flyAlignOri.Attachment0 = flyAttach
+        flyAlignOri.Enabled = true
         
-        flyAttachment.Parent = root
-        flyLinearVelocity.Parent = root
-        flyAlignOrientation.Parent = root
+        flyAttach.Parent = root
+        flyLinearVel.Parent = root
+        flyAlignOri.Parent = root
         
-        if oldAtt then pcall(function() oldAtt:Destroy() end) end
-        if oldLV then pcall(function() oldLV:Destroy() end) end
-        if oldAO then pcall(function() oldAO:Destroy() end) end
+        isBuildingComponents = false
         return true
     end
 
+    -- Dừng fly - disconnect tất cả connections
     local function pauseFlyState()
-        pcall(function()
-            if flyLinearVelocity then flyLinearVelocity.VectorVelocity = Vector3.new(0,0,0) end
-            setOrientationEnabledFly(false)
-            if flyConn then flyConn:Disconnect(); flyConn = nil end
-            if cameraConn then cameraConn:Disconnect(); cameraConn = nil end
-        end)
-        clearConnection("FlightEngineLoop")
-        clearConnection("CameraOrientationLoop")
+        if flyRenderConn then
+            pcall(function() flyRenderConn:Disconnect() end)
+            flyRenderConn = nil
+        end
+        if flyHeartbeatConn then
+            pcall(function() flyHeartbeatConn:Disconnect() end)
+            flyHeartbeatConn = nil
+        end
+        if flyLinearVel then
+            pcall(function() 
+                flyLinearVel.Enabled = false
+                flyLinearVel.VectorVelocity = Vector3.new(0,0,0)
+            end)
+        end
+        if flyAlignOri then
+            pcall(function() flyAlignOri.Enabled = false end)
+        end
+        setOrientationEnabledFly(false)
     end
 
-    local function resumeFlyState()
-        if not state.flying or not lp.Character then return false end
+    local function startPhysicsFly()
+        local char = lp.Character
+        if not char then return false end
+        refreshFlyCaches()
+        if not cachedHumanoid or not cachedRoot then return false end
+        if cachedRoot.Parent ~= char then return false end
+        if not ensureFlyComponents(cachedRoot) then return false end
+        setOrientationEnabledFly(true)
+        pauseFlyState()
+        cachedHumanoid:ChangeState(Enum.HumanoidStateType.Physics)
         
-        local ok = pcall(function()
-            refreshFlyCaches()
-            if not cachedHumanoid or not cachedRoot then error("No humanoid/root") end
-            if not ensureFlyComponents(cachedRoot) then error("Failed components") end
-            setOrientationEnabledFly(true)
-            
-            if flyConn then flyConn:Disconnect() end
-            if cameraConn then cameraConn:Disconnect() end
-            
-            flyConn = RunService.Heartbeat:Connect(function()
-                if not state.flying or not lp.Character then
-                    pauseFlyState()
+        flyHeartbeatConn = RunService.Heartbeat:Connect(function()
+            if not state.flying then
+                if flyLinearVel then 
+                    flyLinearVel.VectorVelocity = Vector3.new(0,0,0)
+                    flyLinearVel.Enabled = false
+                end
+                return
+            end
+            local currentChar = lp.Character
+            if not currentChar then return end
+            if not cachedRoot or cachedRoot.Parent ~= currentChar then
+                refreshFlyCaches()
+                if not cachedRoot then return end
+            end
+            if not flyLinearVel or not flyLinearVel.Parent then
+                if not ensureFlyComponents(cachedRoot) then
+                    scheduleRebuildFly()
                     return
                 end
-                if not cachedRoot or cachedRoot.Parent ~= lp.Character then
-                    refreshFlyCaches()
-                    if not cachedRoot then pauseFlyState(); return end
-                end
-                if flyAttachment and flyAttachment.Parent ~= cachedRoot then
-                    ensureFlyComponents(cachedRoot)
-                end
-                
-                local cam = Workspace.CurrentCamera
-                if not cam then return end
-                local camCF = cam.CFrame
-                local moveDir = Vector3.new(0,0,0)
-                
-                if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camCF.LookVector end
-                if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camCF.LookVector end
-                if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camCF.RightVector end
-                if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camCF.RightVector end
-                if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
-                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
-                
-                if moveDir.Magnitude > 0 then
-                    moveDir = moveDir.Unit * state.flySpeed
-                end
-                
-                if flyLinearVelocity then
-                    flyLinearVelocity.VectorVelocity = moveDir
-                end
-            end)
-            
-            cameraConn = RunService.RenderStepped:Connect(function()
-                if not state.flying or not lp.Character then return end
-                if flyAlignOrientation and flyAlignOrientation.Parent then
-                    flyAlignOrientation.CFrame = getCameraRotationFly()
-                end
-            end)
-            
-            registerConnection("FlightEngineLoop", flyConn)
-            registerConnection("CameraOrientationLoop", cameraConn)
+            end
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            local camCF = cam.CFrame
+            local moveDir = Vector3.new(0,0,0)
+            if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camCF.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camCF.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
+            if moveDir.Magnitude > 0 then moveDir = moveDir.Unit * math.min(state.flySpeed, Config.FLY_SPEED_MAX) end
+            if flyLinearVel then 
+                flyLinearVel.Enabled = true
+                flyLinearVel.VectorVelocity = moveDir 
+            end
         end)
-        return ok
+        
+        flyRenderConn = RunService.RenderStepped:Connect(function()
+            if state.flying and flyAlignOri and flyAlignOri.Parent then
+                flyAlignOri.CFrame = getCameraRotationFly()
+            end
+        end)
+        
+        registerConnection("FlightEngineLoop", flyHeartbeatConn)
+        registerConnection("CameraOrientationLoop", flyRenderConn)
+        return true
+    end
+
+    local function startCFrameFly()
+        local char = lp.Character
+        if not char then return false end
+        refreshFlyCaches()
+        if not cachedHumanoid or not cachedRoot then return false end
+        if cachedRoot.Parent ~= char then return false end
+        cleanupFlyComponents(cachedRoot)
+        flyLinearVel = nil
+        flyAlignOri = nil
+        flyAttach = nil
+        cachedHumanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        pauseFlyState()
+        
+        flyHeartbeatConn = RunService.RenderStepped:Connect(function(deltaTime)
+            if not state.flying then return end
+            local currentChar = lp.Character
+            if not currentChar then return end
+            if not cachedRoot or cachedRoot.Parent ~= currentChar then
+                refreshFlyCaches()
+                if not cachedRoot then return end
+            end
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            cachedRoot.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            local moveDir = Vector3.new(0,0,0)
+            if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
+            if moveDir.Magnitude > 0 then
+                cachedRoot.CFrame = cachedRoot.CFrame + (moveDir.Unit * (math.min(state.flySpeed, Config.FLY_SPEED_MAX) * deltaTime * 2))
+            end
+        end)
+        registerConnection("FlightEngineLoop", flyHeartbeatConn)
+        return true
+    end
+
+    local function startHumanoidFly()
+        local char = lp.Character
+        if not char then return false end
+        refreshFlyCaches()
+        if not cachedHumanoid or not cachedRoot then return false end
+        if cachedRoot.Parent ~= char then return false end
+        cleanupFlyComponents(cachedRoot)
+        flyLinearVel = nil
+        flyAlignOri = nil
+        flyAttach = nil
+        cachedHumanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        pauseFlyState()
+        
+        local lastVel = Vector3.new(0,0,0)
+        flyHeartbeatConn = RunService.RenderStepped:Connect(function()
+            if not state.flying then return end
+            local currentChar = lp.Character
+            if not currentChar then return end
+            if not cachedRoot or cachedRoot.Parent ~= currentChar then
+                refreshFlyCaches()
+                if not cachedRoot then return end
+            end
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            local moveDir = Vector3.new(0,0,0)
+            if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
+            if moveDir.Magnitude > 0 then lastVel = moveDir.Unit * math.min(state.flySpeed, Config.FLY_SPEED_MAX) end
+            cachedRoot.AssemblyLinearVelocity = lastVel
+        end)
+        registerConnection("FlightEngineLoop", flyHeartbeatConn)
+        return true
+    end
+
+    local function startFly()
+        if state.flyMode == "Physics" then
+            return startPhysicsFly()
+        elseif state.flyMode == "CFrame" then
+            return startCFrameFly()
+        elseif state.flyMode == "Humanoid" then
+            return startHumanoidFly()
+        end
+        return false
     end
 
     local function stopFly()
+        if isResuming then return end
         state.flying = false
         pauseFlyState()
-        if lp.Character then
-            local root = lp.Character:FindFirstChild("HumanoidRootPart")
-            if root then pcall(function() root.AssemblyLinearVelocity = Vector3.new(0,0,0) end) end
-        end
-    end
-
-    -- ========== UPDATE OBJECT SCANNER UI ==========
-    local function updateObjectScannerUI()
-        if not selectedPart or not selectedPart.Parent then
-            if selectedPartName then selectedPartName.Text = "Selected: None" end
-            if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
-            if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end); activeSelectionBox = nil end
-            if updateAnchoredButtonUI then updateAnchoredButtonUI() end
-            return
-        end
-        if selectedPartName then selectedPartName.Text = "Selected: " .. string.sub(selectedPart.Name, 1, 16) end
-        local ownerStr = getPartNetworkOwner(selectedPart)
-        local distStr = "Infinite"
-        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-            local r = lp.Character.HumanoidRootPart
-            distStr = string.format("%d studs", math.floor((selectedPart.Position - r.Position).Magnitude))
-        end
-        local anchoredStr = selectedPart.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
-        if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
-        if updateAnchoredButtonUI then updateAnchoredButtonUI() end
-    end
-
-    local function applySelectionBoxToPart(part)
-        if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end) end
-        activeSelectionBox = nil
-        if not part then return end
-        activeSelectionBox = C("SelectionBox", {
-            Color3 = Color3.fromRGB(0,255,255),
-            LineThickness = 0.05,
-            Adornee = part
-        }, screen)
-    end
-
-    -- ========== UI CORE ==========
-    local screen = C("ScreenGui", { Name = "MenuUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Global, DisplayOrder = 9999 }, pg)
-    win = C("Frame", { Name = "Window", Size = Config.UI_WINDOW_SIZE, Position = UDim2.fromScale(0.08, 0.15), BackgroundColor3 = Config.THEMES.Dark.Primary, BorderSizePixel = 0, Active = true }, screen)
-    C("UICorner", { CornerRadius = UDim.new(0,14) }, win)
-    stroke = C("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Config.THEMES.Dark.Accent }, win)
-
-    header = C("Frame", { Size = UDim2.new(1,0,0,42), BackgroundTransparency = 0.15, BackgroundColor3 = Color3.fromRGB(50,50,60), BorderSizePixel = 0 }, win)
-    C("UICorner", { CornerRadius = UDim.new(0,14) }, header)
-    title = C("TextLabel", { Size = UDim2.new(1,-140,1,0), Position = UDim2.fromOffset(14,0), BackgroundTransparency = 1, Text = "Linh Script Premium v10.7.25", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left }, header)
-
-    local toggleBtn = C("TextButton", { Name = "ToggleBtn", Size = UDim2.fromOffset(65,26), Position = UDim2.new(1,-110,0.5,-13), BackgroundColor3 = Config.THEMES.Dark.Accent, BorderSizePixel = 0, Text = "Hide", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 13 }, header)
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, toggleBtn)
-
-    -- Tabs
-    local tabs = { "Main", "Combat/ESP", "System" }
-    local tabHolder = C("Frame", { Parent = win, Size = UDim2.new(1,-20,0,32), Position = UDim2.new(0,10,0,48), BackgroundTransparency = 1 })
-    local tabButtons, tabContents = {}, {}
-    local currentTab = 1
-
-    for i, name in ipairs(tabs) do
-        local btn = C("TextButton", { Parent = tabHolder, Size = UDim2.new(0,130,0,28), Position = UDim2.new(0,(i-1)*136,0,2), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = name, TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
-        C("UICorner", { CornerRadius = UDim.new(0,8) }, btn)
-        tabButtons[i] = btn
-
-        local content = C("ScrollingFrame", { Parent = win, Size = UDim2.new(1,-20,1,-100), Position = UDim2.new(0,10,0,88), BackgroundTransparency = 1, Visible = (i == currentTab), CanvasSize = Config.UI_SCROLL_CANVAS, ScrollBarThickness = 4, ScrollBarImageColor3 = Color3.fromRGB(100,100,120) })
-        C("UIListLayout", { FillDirection = Enum.FillDirection.Vertical, Padding = UDim.new(0,10), SortOrder = Enum.SortOrder.LayoutOrder }, content)
-        tabContents[i] = content
-
-        btn.MouseButton1Click:Connect(function()
-            currentTab = i
-            for j = 1, #tabs do
-                tabContents[j].Visible = not state.hidden and (j == currentTab)
-                tabButtons[j].BackgroundColor3 = (j == currentTab) and Config.THEMES.Dark.Accent or Color3.fromRGB(70,70,80)
-            end
-        end)
-    end
-    tabButtons[1].BackgroundColor3 = Config.THEMES.Dark.Accent
-
-    local function TabRow(tabIndex, labelText)
-        local row = C("Frame", { Size = UDim2.new(1,-10,0,36), BackgroundTransparency = 1 }, tabContents[tabIndex])
-        C("TextLabel", { Size = UDim2.new(0,130,1,0), BackgroundTransparency = 1, Text = labelText, TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }, row)
-        return row
-    end
-
-    -- PERSISTENT CONFIG
-    local function saveUIPreset()
-        if writefile then
-            local config = {
-                theme = currentThemeName, speedValue = state.speedValue, jumpHeight = state.jumpHeight,
-                espDistance = Config.ESP_DISTANCE, espFill = Config.ESP_FILL_TRANSPARENCY,
-                xrayIntensity = state.xrayIntensity, espMode = state.espMode, espFilter = state.espFilter,
-                flyMethod = state.flyMethod, flySpeed = state.flySpeed
-            }
-            pcall(function()
-                writefile("LinhPremium_v10_7.json", HttpService:JSONEncode(config))
-            end)
-        end
-    end
-
-    local function loadUIPreset()
-        if isfile and isfile("LinhPremium_v10_7.json") then
-            local success, data = pcall(function()
-                return HttpService:JSONDecode(readfile("LinhPremium_v10_7.json"))
-            end)
-            if success and data then
-                if data.theme then
-                    currentThemeName = data.theme
-                    win.BackgroundColor3 = Config.THEMES[data.theme].Primary
-                    stroke.Color = Config.THEMES[data.theme].Accent
-                end
-                if data.speedValue then
-                    state.speedValue = data.speedValue
-                    if speedNum then speedNum.Text = tostring(state.speedValue) end
-                end
-                if data.jumpHeight then
-                    state.jumpHeight = math.min(data.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
-                    if jumpValue then jumpValue.Text = tostring(state.jumpHeight) end
-                end
-                if data.espDistance then
-                    Config.ESP_DISTANCE = data.espDistance
-                    ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE
-                    if distValue then distValue.Text = tostring(Config.ESP_DISTANCE) end
-                end
-                if data.xrayIntensity then
-                    state.xrayIntensity = data.xrayIntensity
-                    if xrayValue then xrayValue.Text = string.format("%.2f", state.xrayIntensity) end
-                end
-                if data.espMode then
-                    state.espMode = data.espMode
-                    if espModeBtn then espModeBtn.Text = "Mode: " .. state.espMode end
-                end
-                if data.espFilter then
-                    state.espFilter = data.espFilter
-                    if espFilterBtn then espFilterBtn.Text = "Filter: " .. state.espFilter end
-                end
-                if data.flyMethod then
-                    state.flyMethod = data.flyMethod
-                    if flyMethodBtn then flyMethodBtn.Text = "Engine: " .. state.flyMethod end
-                end
-                if data.flySpeed then
-                    state.flySpeed = data.flySpeed
-                    if flySpeedValue then flySpeedValue.Text = tostring(state.flySpeed) end
-                end
+        clearConnection("FlightEngineLoop")
+        clearConnection("CameraOrientationLoop")
+        local char = lp.Character
+        if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then cleanupFlyComponents(root) end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                hum.PlatformStand = false
             end
         end
+        flyLinearVel = nil
+        flyAlignOri = nil
+        flyAttach = nil
+        cachedHumanoid = nil
+        cachedRoot = nil
     end
 
-    -- DRAG & DROP
-    header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            draggingWindow = true
-            dragStart = input.Position
-            startPos = win.Position
-        end
-    end)
-
-    local throttleDelay, lastUpdate = 1/50, 0
-    local dragConnection = UIS.InputChanged:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-        if not win or not win.Parent then return end
+    local function scheduleRebuildFly()
+        if isRebuilding then return end
+        isRebuilding = true
+        local myToken = flyRebuildToken + 1
+        flyRebuildToken = myToken
+        local rebuildAttempts = 0
+        local MAX_REBUILD_ATTEMPTS = 5
         
-        local now = time()
-        if now - lastUpdate < throttleDelay then return end
-        lastUpdate = now
-
-        if draggingWindow and dragStart and startPos then
-            local delta = input.Position - dragStart
-            win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-
-        if draggingDist and distBar and distKnob then
-            local barX, barW = distBar.AbsolutePosition.X, distBar.AbsoluteSize.X
-            if barW > 0 then
-                local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
-                Config.ESP_DISTANCE = math.floor(Config.ESP_DIST_MIN + rel * (Config.ESP_DIST_MAX - Config.ESP_DIST_MIN))
-                ESP_DIST_SQ = Config.ESP_DISTANCE * Config.ESP_DISTANCE
-                distKnob.Position = UDim2.new(rel, -7, 0.5, -7)
-                distValue.Text = tostring(Config.ESP_DISTANCE)
+        local function attemptRebuild()
+            if not state.flying then
+                isRebuilding = false
+                return
             end
-        end
-
-        if draggingFill and fillBar and fillKnob then
-            local barX, barW = fillBar.AbsolutePosition.X, fillBar.AbsoluteSize.X
-            if barW > 0 then
-                local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
-                Config.ESP_FILL_TRANSPARENCY = rel
-                fillKnob.Position = UDim2.new(rel, -7, 0.5, -7)
-                fillValue.Text = string.format("%.2f", rel)
-                for _, d in pairs(espData) do
-                    if d.highlight then d.highlight.FillTransparency = rel end
+            if myToken ~= flyRebuildToken then
+                isRebuilding = false
+                return
+            end
+            rebuildAttempts = rebuildAttempts + 1
+            if rebuildAttempts > MAX_REBUILD_ATTEMPTS then
+                warn("[Fly] Too many rebuild attempts, stopping")
+                isRebuilding = false
+                if state.flying then
+                    stopFly()
+                    state.flying = false
                 end
+                return
             end
-        end
-
-        if draggingJump and jumpBar and jumpKnob then
-            local barX, barW = jumpBar.AbsolutePosition.X, jumpBar.AbsoluteSize.X
-            if barW > 0 then
-                local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
-                state.jumpHeight = math.floor(50 + rel * 200)
-                state.jumpHeight = math.min(state.jumpHeight, Config.MAX_SAFE_JUMP_POWER)
-                jumpKnob.Position = UDim2.new(rel, -7, 0.5, -7)
-                jumpValue.Text = tostring(state.jumpHeight)
-                if state.jumpEnabled and currentHumanoid then
-                    enforceJumpValue(currentHumanoid)
+            if resumeFailureCount >= MAX_RESUME_FAILURE then
+                isRebuilding = false
+                if state.flying then
+                    stopFly()
+                    state.flying = false
                 end
+                return
             end
-        end
-
-        if draggingXray and xrayBar and xrayKnob then
-            local barX, barW = xrayBar.AbsolutePosition.X, xrayBar.AbsoluteSize.X
-            if barW > 0 then
-                local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
-                state.xrayIntensity = 0.3 + rel * 0.6
-                xrayKnob.Position = UDim2.new(rel, -7, 0.5, -7)
-                xrayValue.Text = string.format("%.2f", state.xrayIntensity)
-                if state.xray then
-                    for _, p in ipairs(CollectionService:GetTagged(XRAY_TAG)) do
-                        p.Transparency = state.xrayIntensity
-                    end
-                end
-            end
-        end
-
-        if draggingFlySpeed and flySpeedBar and flySpeedKnob then
-            local barX, barW = flySpeedBar.AbsolutePosition.X, flySpeedBar.AbsoluteSize.X            if barW > 0 then
-                local rel = math.clamp((input.Position.X - barX) / barW, 0, 1)
-                state.flySpeed = math.floor(Config.FLY_SPEED_MIN + rel * (Config.FLY_SPEED_MAX - Config.FLY_SPEED_MIN))
-                flySpeedKnob.Position = UDim2.new(rel, -7, 0.5, -7)
-                flySpeedValue.Text = tostring(state.flySpeed)
-            end
-        end
-    end)
-    registerConnection("DragConnection", dragConnection)
-
-    local dragEndConnection = UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            draggingWindow = false
-            draggingDist = false
-            draggingFill = false
-            draggingJump = false
-            draggingXray = false
-            draggingFlySpeed = false
-            saveUIPreset()
-        end
-    end)
-    registerConnection("DragEndConnection", dragEndConnection)
-
-    -- MAIN TAB UI
-    local themeRow = TabRow(1, "Theme Preset")
-    local themeHolder = C("Frame", { Parent = themeRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
-    C("UIGridLayout", { CellSize = UDim2.fromOffset(62,26), CellPadding = UDim2.fromOffset(4,4) }, themeHolder)
-
-    for name, _ in pairs(Config.THEMES) do
-        local b = C("TextButton", { Text = name, BackgroundColor3 = Color3.fromRGB(70,70,80), TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamMedium, TextSize = 12, BorderSizePixel = 0 }, themeHolder)
-        C("UICorner", { CornerRadius = UDim.new(0,6) }, b)
-        b.MouseButton1Click:Connect(function()
-            currentThemeName = name
-            win.BackgroundColor3 = Config.THEMES[name].Primary
-            stroke.Color = Config.THEMES[name].Accent
-            saveUIPreset()
-        end)
-    end
-
-    -- Speed UI
-    local speedRow = TabRow(1, "WalkSpeed Hack")
-    speedBtn = C("TextButton", { Parent = speedRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBtn)
-    speedNum = C("TextLabel", { Parent = speedRow, Size = UDim2.new(0,45,1,0), Position = UDim2.new(0,205,0,0), BackgroundTransparency = 1, Text = tostring(state.speedValue), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
-
-    local speedBox = C("TextBox", { Parent = speedRow, Size = UDim2.new(0,50,1,0), Position = UDim2.new(0,260,0,0), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0, Text = "", PlaceholderText = "Set", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.Gotham, TextSize = 13, ClearTextOnFocus = true })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, speedBox)
-
-    speedBox.FocusLost:Connect(function()
-        local val = tonumber(speedBox.Text)
-        speedBox.Text = ""
-        if val and val >= 16 and val <= Config.MAX_SAFE_WALK_SPEED then
-            state.speedValue = math.floor(val)
-            speedNum.Text = tostring(state.speedValue)
-            if state.speedOn and lp.Character then
-                applyCharacterPhysics(lp.Character)
-            end
-        end
-    end)
-
-    speedBtn.MouseButton1Click:Connect(function()
-        state.speedOn = not state.speedOn
-        speedBtn.Text = state.speedOn and "ON" or "OFF"
-        TweenService:Create(speedBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.speedOn and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-        applyCharacterPhysics(lp.Character)
-    end)
-
-    -- Jump UI
-    local jumpHeightRow = TabRow(1, "Jump Height")
-    jumpBtn = C("TextButton", { Parent = jumpHeightRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 13 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, jumpBtn)
-
-    local jSliderFrame = C("Frame", { Parent = jumpHeightRow, Size = UDim2.new(1,-215,1,0), Position = UDim2.new(0,210,0,0), BackgroundTransparency = 1 })
-    jumpBar = C("Frame", { Parent = jSliderFrame, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, jumpBar)
-    jumpKnob = C("Frame", { Parent = jSliderFrame, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.25,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, jumpKnob)
-    jumpValue = C("TextLabel", { Parent = jSliderFrame, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,5,0,0), BackgroundTransparency = 1, Text = tostring(state.jumpHeight), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
-
-    jumpKnob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            draggingJump = true
-        end
-    end)
-
-    jumpBtn.MouseButton1Click:Connect(function()
-        state.jumpEnabled = not state.jumpEnabled
-        jumpBtn.Text = state.jumpEnabled and "ON" or "OFF"
-        TweenService:Create(jumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.jumpEnabled and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-        if currentHumanoid and isHumanoidValid(currentHumanoid) then
-            enforceJumpValue(currentHumanoid)
-        end
-    end)
-
-    local jumpModesRow = TabRow(1, "Jump Mechanics")
-    infBtn = C("TextButton", { Parent = jumpModesRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "InfJump: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, infBtn)
-
-    multiJumpBtn = C("TextButton", { Parent = jumpModesRow, Size = UDim2.new(0,115,1,0), Position = UDim2.new(0,245,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "MultiJump: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, multiJumpBtn)
-
-    infBtn.MouseButton1Click:Connect(function()
-        state.infJump = not state.infJump
-        infBtn.Text = state.infJump and "InfJump: ON" or "InfJump: OFF"
-        if state.infJump and state.multiJump then
-            state.multiJump = false
-            multiJumpBtn.Text = "MultiJump: OFF"
-            multiJumpBtn.BackgroundColor3 = Color3.fromRGB(70,70,80)
-        end
-        TweenService:Create(infBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.infJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-    end)
-
-    multiJumpBtn.MouseButton1Click:Connect(function()
-        state.multiJump = not state.multiJump
-        multiJumpBtn.Text = state.multiJump and "MultiJump: ON" or "MultiJump: OFF"
-        if state.multiJump and state.infJump then
-            state.infJump = false
-            infBtn.Text = "InfJump: OFF"
-            infBtn.BackgroundColor3 = Color3.fromRGB(70,70,80)
-        end
-        TweenService:Create(multiJumpBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.multiJump and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-    end)
-
-    -- Noclip UI
-    local noclipMasterRow = TabRow(1, "Noclip Core")
-    noclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,105,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Noclip: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, noclipBtn)
-
-    silentNoclipBtn = C("TextButton", { Parent = noclipMasterRow, Size = UDim2.new(0,115,1,0), Position = UDim2.new(0,245,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Silent Mode: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, silentNoclipBtn)
-
-    noclipBtn.MouseButton1Click:Connect(function()
-        state.noclip = not state.noclip
-        noclipBtn.Text = state.noclip and "Noclip: ON" or "Noclip: OFF"
-        TweenService:Create(noclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.noclip and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-        if not state.noclip then
-            for part, orig in pairs(originalCollisions) do
-                if part and part.Parent then
-                    pcall(function()
-                        part.CanCollide = orig
-                    end)
-                end
-            end
-            table.clear(originalCollisions)
-            table.clear(characterPartsCache)
-            if lp.Character then
-                refreshCharacterPartsCache(lp.Character)
-            end
-        end
-    end)
-
-    silentNoclipBtn.MouseButton1Click:Connect(function()
-        state.silentNoclip = not state.silentNoclip
-        silentNoclipBtn.Text = state.silentNoclip and "Silent Mode: ON" or "Silent Mode: OFF"
-        TweenService:Create(silentNoclipBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.silentNoclip and Color3.fromRGB(210,140,40) or Color3.fromRGB(70,70,80) }):Play()
-    end)
-
-    local lastNoclipUpdate = 0
-    local NOCLIP_THROTTLE = 1/20
-
-    local noclipConn = RunService.RenderStepped:Connect(function()
-        if not state.noclip or #characterPartsCache == 0 then return end
-        
-        local now = time()
-        if now - lastNoclipUpdate < NOCLIP_THROTTLE then return end
-        lastNoclipUpdate = now
-
-        if state.silentNoclip then
-            overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-            overlapParams.FilterDescendantsInstances = {lp.Character}
-
-            for i = 1, #characterPartsCache do
-                local part = characterPartsCache[i]
-                if part and part.Parent and part.Name == "HumanoidRootPart" then
-                    local bounds = Workspace:GetPartsInPart(part, overlapParams)
-                    if #bounds > 0 then
-                        for j = 1, #characterPartsCache do
-                            if characterPartsCache[j] then
-                                characterPartsCache[j].CanCollide = false
-                            end
-                        end
+            refreshFlyCaches()
+            local char = lp.Character
+            if char and cachedRoot and cachedRoot.Parent == char then
+                local success = pcall(startFly)
+                if success then
+                    isRebuilding = false
+                    rebuildRetryCount = 0
+                    resumeFailureCount = 0
+                else
+                    resumeFailureCount = resumeFailureCount + 1
+                    rebuildRetryCount = rebuildRetryCount + 1
+                    if rebuildRetryCount < MAX_REBUILD_RETRY then
+                        task.delay(0.5, attemptRebuild)
                     else
-                        for j = 1, #characterPartsCache do
-                            local p = characterPartsCache[j]
-                            if p then
-                                p.CanCollide = originalCollisions[p] or true
-                            end
+                        isRebuilding = false
+                        if state.flying then
+                            stopFly()
+                            state.flying = false
                         end
                     end
-                    break
                 end
+            elseif rebuildRetryCount < MAX_REBUILD_RETRY then
+                rebuildRetryCount = rebuildRetryCount + 1
+                task.delay(0.5, attemptRebuild)
+            else
+                isRebuilding = false
+                if state.flying then
+                    stopFly()
+                    state.flying = false
+                end
+            end
+        end
+        
+        task.defer(attemptRebuild)
+    end
+
+    local function toggleFly()
+        if isResuming then return end
+        state.flying = not state.flying
+        if state.flying then
+            local success = pcall(startFly)
+            if not success then
+                warn("[Fly] Failed to start, scheduling rebuild")
+                state.flying = false
+                scheduleRebuildFly()
             end
         else
-            for i = 1, #characterPartsCache do
-                local part = characterPartsCache[i]
-                if part and part.Parent and part.CanCollide then
-                    part.CanCollide = false
+            stopFly()
+        end
+        updateActiveCounter()
+        SaveConfig()
+    end
+
+    -- Đồng bộ UI với trạng thái thực tế
+    local function syncFlyButton()
+        if state.flying then
+            local success = pcall(function()
+                if (state.flyMode == "Physics" and (not flyHeartbeatConn or not flyRenderConn)) or
+                   (state.flyMode ~= "Physics" and not flyHeartbeatConn) then
+                    startFly()
                 end
+            end)
+            if not success then
+                state.flying = false
             end
         end
-    end)
-    registerConnection("NoclipEngine", noclipConn)
+    end
 
-    -- ESP UI
-    local espRowMaster = TabRow(2, "Player ESP Core")
-    espBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,75,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, espBtn)
-
-    espFilterBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,100,1,0), Position = UDim2.new(0,210,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Filter: All", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, espFilterBtn)
-
-    espModeBtn = C("TextButton", { Parent = espRowMaster, Size = UDim2.new(0,115,1,0), Position = UDim2.new(0,315,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Mode: Both", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, espModeBtn)
-
-    local distRow = TabRow(2, "ESP Range")
-    local distSlider = C("Frame", { Parent = distRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
-    distBar = C("Frame", { Parent = distSlider, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, distBar)
-    distKnob = C("Frame", { Parent = distSlider, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.5,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, distKnob)
-    distValue = C("TextLabel", { Parent = distSlider, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,10,0,0), BackgroundTransparency = 1, Text = tostring(Config.ESP_DISTANCE), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
-    distKnob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            draggingDist = true
+    -- Character respawn với WaitForChild an toàn
+    lp.CharacterAdded:Connect(function(char)
+        local root = char:WaitForChild("HumanoidRootPart", 5)
+        if root and state.flying then
+            task.wait(0.3)
+            refreshFlyCaches()
+            if cachedRoot and cachedRoot == root then
+                pcall(startFly)
+            else
+                scheduleRebuildFly()
+            end
         end
+        syncFlyButton()
     end)
 
-    local fillRow = TabRow(2, "ESP Opacity")
-    local fillSlider = C("Frame", { Parent = fillRow, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
-    fillBar = C("Frame", { Parent = fillSlider, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, fillBar)
-    fillKnob = C("Frame", { Parent = fillSlider, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.5,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, fillKnob)
-    fillValue = C("TextLabel", { Parent = fillSlider, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,10,0,0), BackgroundTransparency = 1, Text = tostring(Config.ESP_FILL_TRANSPARENCY), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
-    fillKnob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            draggingFill = true
-        end
-    end)
+    -- ==================== ESP MANAGER ====================
+    local espObjects = {}
+    local espConnections = {}
 
-    local lootRow = TabRow(2, "Premium Loot ESP")
-    lootEspBtn = C("TextButton", { Parent = lootRow, Size = UDim2.new(0,150,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Loot/Chest ESP: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, lootEspBtn)
-
-    -- ESP FUNCTIONS
     local function getESPColor(plr)
-        if lp.Team and plr.Team then
-            return (plr.Team == lp.Team) and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
-        end
+        if lp.Team and plr.Team then return (plr.Team == lp.Team) and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50) end
         return Color3.fromRGB(255,170,0)
     end
 
-    local function checkESPFilterValid(plr)
-        if state.espFilter == "All" then return true
-        elseif state.espFilter == "Enemy Only" then
-            if lp.Team and plr.Team then
-                return lp.Team ~= plr.Team
-            end
-            return true
-        elseif state.espFilter == "Team Only" then
-            if lp.Team and plr.Team then
-                return lp.Team == plr.Team
-            end
-            return false
-        end
-        return true
+    local function removeESPForPlayer(plr)
+        if espObjects[plr.UserId] then pcall(function() espObjects[plr.UserId]:Destroy() end); espObjects[plr.UserId] = nil end
+        if espConnections[plr.UserId] then pcall(function() espConnections[plr.UserId]:Disconnect() end); espConnections[plr.UserId] = nil end
     end
 
-    local function createESPForPlayer(plr)
-        if plr == lp or espData[plr] then return end
-        if not checkESPFilterValid(plr) then return end
-
-        local data = { connections = {}, retryConn = nil, lastDist = nil }
-        espData[plr] = data
-
-        local function setupCharEsp(char)
-            if not state.esp or not char then return end
-            
-            if data.retryConn then
-                pcall(function()
-                    data.retryConn:Disconnect()
-                end)
-                data.retryConn = nil
-            end
-
-            local function trySetup()
-                if not char.Parent then return false end
-                local root = getRoot(char)
-                if not root then return false end
-
-                if (state.espMode == "Highlight" or state.espMode == "Both") and not data.highlight then
-                    data.highlight = C("Highlight", {
-                        OutlineColor = Color3.new(1,1,1),
-                        FillColor = getESPColor(plr),
-                        FillTransparency = Config.ESP_FILL_TRANSPARENCY,
-                        Adornee = char
-                    }, screen)
-                end
-                if (state.espMode == "Box" or state.espMode == "Both") and not data.box then
-                    data.box = C("SelectionBox", {
-                        Color3 = getESPColor(plr),
-                        LineThickness = 0.04,
-                        Transparency = 0.4,
-                        Adornee = char
-                    }, screen)
-                end
-                if not data.billboard then
-                    data.billboard = C("BillboardGui", {
-                        Size = UDim2.fromOffset(140,30),
-                        StudsOffset = Vector3.new(0,3.5,0),
-                        AlwaysOnTop = true,
-                        Adornee = char:FindFirstChild("Head") or root
-                    }, screen)
-                    data.label = C("TextLabel", {
-                        Parent = data.billboard,
-                        Size = UDim2.fromScale(1,1),
-                        BackgroundTransparency = 1,
-                        Font = Enum.Font.GothamBold,
-                        TextSize = 11,
-                        TextStrokeTransparency = 0,
-                        TextStrokeColor3 = Color3.new(0,0,0),
-                        TextColor3 = getESPColor(plr),
-                        Text = plr.Name
-                    }, data.billboard)
-                end
-                return true
-            end
-
-            if not trySetup() then
-                local retries = 0
-                data.retryConn = RunService.Heartbeat:Connect(function()
-                    retries = retries + 1
-                    if trySetup() or retries >= 15 then
-                        if data.retryConn then
-                            data.retryConn:Disconnect()
-                            data.retryConn = nil
-                        end
-                    end
-                end)
-                table.insert(data.connections, data.retryConn)
-            end
-        end
-
-        if plr.Character then task.spawn(setupCharEsp, plr.Character) end
-        table.insert(data.connections, plr.CharacterAdded:Connect(function(c)
-            task.spawn(setupCharEsp, c)
-        end))
+    local function drawESP(plr, character)
+        if not state.esp or plr == lp then return end
+        if espObjects[plr.UserId] then pcall(function() espObjects[plr.UserId]:Destroy() end) end
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = character
+        highlight.FillColor = getESPColor(plr)
+        highlight.FillTransparency = Config.ESP_FILL_TRANSPARENCY
+        highlight.OutlineColor = Color3.new(1,1,1)
+        highlight.Parent = character
+        espObjects[plr.UserId] = highlight
     end
 
-    local function removeESP(plr, clean)
-        local d = espData[plr]
-        if d then
-            if d.highlight then pcall(function() d.highlight:Destroy() end) end
-            if d.box then pcall(function() d.box:Destroy() end) end
-            if d.billboard then pcall(function() d.billboard:Destroy() end) end
-            if d.retryConn then pcall(function() d.retryConn:Disconnect() end) end
-            if clean and d.connections then
-                for _, c in ipairs(d.connections) do
-                    pcall(function() c:Disconnect() end)
-                end
-            end
-            espData[plr] = nil
-        end
+    local function setupESPForPlayer(plr)
+        if plr == lp then return end
+        if espConnections[plr.UserId] then espConnections[plr.UserId]:Disconnect() end
+        local conn = plr.CharacterAdded:Connect(function(char) drawESP(plr, char) end)
+        espConnections[plr.UserId] = conn
+        if plr.Character then drawESP(plr, plr.Character) end
     end
 
-    local updateAccum = 0
-
-    local function requestEspUpdate(dt)
-        updateAccum = updateAccum + dt
-        if updateAccum < Config.ESP_UPDATE_INTERVAL then return end
-        updateAccum = updateAccum - Config.ESP_UPDATE_INTERVAL
-
-        if not state.esp then return end
-        if not lp.Character then return end
-        local myRoot = getRoot(lp.Character)
-        if not myRoot then return end
-        local myPos = myRoot.Position
-
-        local enableHighlight = (state.espMode == "Highlight" or state.espMode == "Both")
-        local enableBox = (state.espMode == "Box" or state.espMode == "Both")
-
-        for plr, d in pairs(espData) do
-            if not checkESPFilterValid(plr) then
-                removeESP(plr, false)
-            else
-                local tRoot = getRoot(plr.Character)
-                if not tRoot then
-                    if d.billboard then d.billboard.Enabled = false end
-                    if d.highlight then d.highlight.Enabled = false end
-                    if d.box then d.box.Visible = false end
-                    d.lastDist = nil
-                else
-                    local offset = tRoot.Position - myPos
-                    local distSq = offset:Dot(offset)
-                    local valid = distSq <= ESP_DIST_SQ
-
-                    if d.billboard then d.billboard.Enabled = valid end
-                    if d.highlight then d.highlight.Enabled = valid and enableHighlight end
-                    if d.box then d.box.Visible = valid and enableBox end
-
-                    if valid and d.label then
-                        local roundedDist = math.floor(math.sqrt(distSq))
-
-                        if d.lastDist ~= roundedDist then
-                            d.label.Text = plr.Name .. " [" .. roundedDist .. "m]"
-                            d.lastDist = roundedDist
-                        end
-
-                        local color = getESPColor(plr)
-                        if d.label.TextColor3 ~= color then d.label.TextColor3 = color end
-
-                        if d.highlight and (d.highlight.FillColor ~= color) then
-                            d.highlight.FillColor = color
-                            d.highlight.OutlineColor = color
-                        end
-                        if d.box and (d.box.Color3 ~= color) then
-                            d.box.Color3 = color
-                        end
-                    else
-                        d.lastDist = nil
-                    end
-                end
-            end
-        end
+    local function enableESP()
+        for _, plr in ipairs(Players:GetPlayers()) do setupESPForPlayer(plr) end
     end
 
-    espBtn.MouseButton1Click:Connect(function()
-        state.esp = not state.esp
-        espBtn.Text = state.esp and "ESP: ON" or "ESP: OFF"
-        TweenService:Create(espBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.esp and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-        if state.esp then
-            for _, p in ipairs(Players:GetPlayers()) do
-                createESPForPlayer(p)
-            end
-        else
-            for _, p in ipairs(Players:GetPlayers()) do
-                removeESP(p, false)
-            end
-        end
-    end)
+    local function disableESP()
+        for _, plr in ipairs(Players:GetPlayers()) do removeESPForPlayer(plr) end
+    end
 
-    espFilterBtn.MouseButton1Click:Connect(function()
-        if state.espFilter == "All" then
-            state.espFilter = "Enemy Only"
-        elseif state.espFilter == "Enemy Only" then
-            state.espFilter = "Team Only"
-        else
-            state.espFilter = "All"
-        end
-        espFilterBtn.Text = "Filter: " .. state.espFilter
-        if state.esp then
-            for _, p in ipairs(Players:GetPlayers()) do
-                removeESP(p, false)
-                createESPForPlayer(p)
-            end
-        end
-    end)
+    Players.PlayerAdded:Connect(setupESPForPlayer)
+    Players.PlayerRemoving:Connect(removeESPForPlayer)
 
-    espModeBtn.MouseButton1Click:Connect(function()
-        if state.espMode == "Both" then
-            state.espMode = "Highlight"
-        elseif state.espMode == "Highlight" then
-            state.espMode = "Box"
-        else
-            state.espMode = "Both"
-        end
-        espModeBtn.Text = "Mode: " .. state.espMode
-    end)
+    -- ==================== LOOT ESP ====================
+    local lootBillboards = {}
+    local screenGui = nil
 
-    local espRenderConn = RunService.RenderStepped:Connect(function(dt)
-        safePCall(function()
-            requestEspUpdate(dt)
-        end, "ESP update")
-    end)
-    registerConnection("ESPRenderLoop", espRenderConn)
-
-    -- LOOT ESP
-    local function isLootInstance(instance)
-        if not instance:IsA("BasePart") then return false end
-        local nameLower = string.lower(instance.Name)
-        for _, keyword in ipairs(Config.LOOT_KEYWORDS) do
-            if string.find(nameLower, keyword) then return true end
+    local function isLoot(inst)
+        if not inst:IsA("BasePart") then return false end
+        local name = string.lower(inst.Name)
+        for _, kw in ipairs(Config.LOOT_KEYWORDS) do 
+            if string.find(name, kw) then return true end 
         end
         return false
     end
 
     local function createLootBillboard(part)
-        local bb = C("BillboardGui", {
-            Size = UDim2.fromOffset(110, 25),
-            StudsOffset = Vector3.new(0, 2, 0),
-            AlwaysOnTop = true,
-            Adornee = part
-        }, screen)
-        local label = C("TextLabel", {
-            Parent = bb,
-            Size = UDim2.fromScale(1, 1),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.GothamBold,
-            TextSize = 10,
-            TextColor3 = Color3.fromRGB(0, 230, 255),
-            TextStrokeTransparency = 0
-        })
-        return { billboard = bb, label = label, lastDist = nil }
+        if not screenGui then return nil end
+        local bb = C("BillboardGui", {Size=UDim2.fromOffset(110,25), StudsOffset=Vector3.new(0,2,0), AlwaysOnTop=true, Adornee=part}, screenGui)
+        local label = C("TextLabel", {Parent=bb, Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Font=Enum.Font.GothamBold, TextSize=10, TextColor3=Color3.fromRGB(0,230,255)})
+        return {bb = bb, label = label, lastDist = nil}
     end
 
-    local function addLootToRegistry(part)
-        if lootRegistry[part] then return end
-        lootRegistry[part] = createLootBillboard(part)
-    end
-
-    local function removeLootFromRegistry(part)
-        local cache = lootRegistry[part]
-        if cache then
-            if cache.billboard then pcall(function() cache.billboard:Destroy() end) end
-            lootRegistry[part] = nil
-        end
-    end
-
-    local function onLootTagAdded(part)
-        if part and part:IsA("BasePart") then
-            addLootToRegistry(part)
-        end
-    end
-
-    local function onLootTagRemoved(part)
-        if part then
-            removeLootFromRegistry(part)
-        end
-    end
-
-    local function onNewInstance(instance)
-        if not instance:IsA("BasePart") then return end
-        if isLootInstance(instance) and not CollectionService:HasTag(instance, LOOT_TAG) then
-            CollectionService:AddTag(instance, LOOT_TAG)
-        end
-    end
-
-    local function refreshLootRegistry()
-        local allParts = Workspace:GetDescendants()
-        for i = 1, #allParts do
-            if isLootInstance(allParts[i]) then
-                if not CollectionService:HasTag(allParts[i], LOOT_TAG) then
-                    CollectionService:AddTag(allParts[i], LOOT_TAG)
-                end
-                addLootToRegistry(allParts[i])
+    local function scanLootInRadius()
+        local char = lp.Character
+        if not state.lootEsp or not char or not screenGui then return end
+        local root = getRoot(char)
+        if not root then return end
+        local params = OverlapParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {char}
+        local parts = Workspace:GetPartBoundsInRadius(root.Position, Config.LOOT_SCAN_RADIUS, params)
+        for _, p in ipairs(parts) do
+            if isLoot(p) and not lootBillboards[p] then
+                local data = createLootBillboard(p)
+                if data then lootBillboards[p] = data end
             end
-            if i % 500 == 0 then task.wait() end
         end
-    end
-
-    local function scanExistingLoot()
-        local allParts = Workspace:GetDescendants()
-        for i = 1, #allParts do
-            if isLootInstance(allParts[i]) then
-                CollectionService:AddTag(allParts[i], LOOT_TAG)
+        for part, data in pairs(lootBillboards) do
+            if not part or not part.Parent then
+                if data.bb then data.bb:Destroy() end
+                lootBillboards[part] = nil
             end
-            if i % 1000 == 0 then task.wait() end
         end
     end
-
-    CollectionService:GetInstanceAddedSignal(LOOT_TAG):Connect(onLootTagAdded)
-    CollectionService:GetInstanceRemovedSignal(LOOT_TAG):Connect(onLootTagRemoved)
-
-    local descendantAddedConn = Workspace.DescendantAdded:Connect(onNewInstance)
-    registerConnection("LootDescendantAdded", descendantAddedConn)
-
-    task.spawn(scanExistingLoot)
 
     local function updateLootESP()
-        if not state.lootEspEnabled or not lp.Character then return end
-
-        local root = lp.Character:FindFirstChild("HumanoidRootPart")
+        local char = lp.Character
+        if not state.lootEsp or not char or not screenGui then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
         if not root then return end
-
-        local rootPos = root.Position
-        local processedCount = 0
-        local pendingRemoval = {}
-
-        for part, cache in pairs(lootRegistry) do
-            if not part or not part.Parent then
-                table.insert(pendingRemoval, part)
-            end
-        end
-
-        for _, part in ipairs(pendingRemoval) do
-            removeLootFromRegistry(part)
-        end
-
-        for part, cache in pairs(lootRegistry) do
-            if processedCount >= Config.LOOT_MAX_RENDER then break end
-
-            local offset = part.Position - rootPos
-            local distSq = offset:Dot(offset)
-
-            if distSq <= LOOT_RADIUS_SQ then
-                local dist = math.floor(math.sqrt(distSq))
-
-                if cache.lastDist ~= dist then
-                    cache.label.Text = "📦 " .. part.Name .. " [" .. dist .. "m]"
-                    cache.lastDist = dist
+        local pos = root.Position
+        local count = 0
+        for part, data in pairs(lootBillboards) do
+            if count >= Config.LOOT_MAX_RENDER then break end
+            if part and part.Parent then
+                local dist = (part.Position - pos).Magnitude
+                if dist <= Config.LOOT_SCAN_RADIUS then
+                    if data.label and data.lastDist ~= math.floor(dist) then
+                        data.label.Text = "📦 " .. part.Name .. " [" .. math.floor(dist) .. "m]"
+                        data.lastDist = math.floor(dist)
+                    end
+                    data.bb.Enabled = true
+                    count = count + 1
+                else
+                    data.bb.Enabled = false
                 end
-
-                cache.billboard.Enabled = true
-                processedCount = processedCount + 1
             else
-                cache.billboard.Enabled = false
+                if data.bb then data.bb:Destroy() end
+                lootBillboards[part] = nil
             end
         end
     end
-
-    local function clearLootEsp()
-        for part, cache in pairs(lootRegistry) do
-            if cache.billboard then pcall(function() cache.billboard:Destroy() end) end
-        end
-        table.clear(lootRegistry)
-    end
-
-    lootEspBtn.MouseButton1Click:Connect(function()
-        state.lootEspEnabled = not state.lootEspEnabled
-        lootEspBtn.Text = state.lootEspEnabled and "Loot ESP: ON" or "Loot ESP: OFF"
-        TweenService:Create(lootEspBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.lootEspEnabled and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-        if state.lootEspEnabled then
-            task.spawn(refreshLootRegistry)
-        else
-            clearLootEsp()
-        end
-    end)
 
     task.spawn(function()
-        while state.scriptEnabled and state.lootPipelineActive do
-            task.wait(0.3)
-            if state.lootEspEnabled then
-                safePCall(updateLootESP, "Loot ESP")
+        while state.scriptEnabled do
+            task.wait(0.5)
+            if state.lootEsp then
+                pcall(scanLootInRadius)
+                pcall(updateLootESP)
             end
         end
     end)
 
-    local pAddedConn = Players.PlayerAdded:Connect(createESPForPlayer)
-    local pRemovingConn = Players.PlayerRemoving:Connect(function(p)
-        removeESP(p, true)
-    end)
-    registerConnection("PlayerAddedESP", pAddedConn)
-    registerConnection("PlayerRemovingESP", pRemovingConn)
-
-    -- FLY UI
-    local flyRowSys = TabRow(3, "Premium Flight Engine")
-    flyBtn = C("TextButton", { Parent = flyRowSys, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "FLY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, flyBtn)
-
-    flyMethodBtn = C("TextButton", { Parent = flyRowSys, Size = UDim2.new(0,140,1,0), Position = UDim2.new(0,210,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "Engine: LinearVel", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, flyMethodBtn)
-
-    local flySpeedRowSys = TabRow(3, "Flight Speed")
-    local flySpeedSliderSys = C("Frame", { Parent = flySpeedRowSys, Size = UDim2.new(1,-130,1,0), Position = UDim2.new(0,130,0,0), BackgroundTransparency = 1 })
-    flySpeedBar = C("Frame", { Parent = flySpeedSliderSys, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, flySpeedBar)
-    flySpeedKnob = C("Frame", { Parent = flySpeedSliderSys, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.15,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, flySpeedKnob)
-    flySpeedValue = C("TextLabel", { Parent = flySpeedSliderSys, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,10,0,0), BackgroundTransparency = 1, Text = tostring(state.flySpeed), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
-    flySpeedKnob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            draggingFlySpeed = true
-        end
-    end)
-
-    local function toggleFlyState()
-        state.flying = not state.flying
-        flyBtn.Text = state.flying and "FLY: ON" or "FLY: OFF"
-        TweenService:Create(flyBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.flying and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
-        if state.flying then
-            resumeFlyState()
-        else
-            stopFly()
-        end
-    end
-
-    flyBtn.MouseButton1Click:Connect(toggleFlyState)
-
-    flyMethodBtn.MouseButton1Click:Connect(function()
-        if partInfoLabel then
-            partInfoLabel.Text = "⚠️ LinearVel engine only (most stable)"
-        end
-        task.delay(2, function()
-            if partInfoLabel and partInfoLabel.Text == "⚠️ LinearVel engine only (most stable)" then
-                partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Ready"
-            end
-        end)
-    end)
-
-    CAS:BindAction("FlyActionKey", function(_, actionState)
-        if UIS:GetFocusedTextBox() then return end
-        if actionState == Enum.UserInputState.Begin then toggleFlyState() end
-    end, false, Enum.KeyCode.B)
-
-    if lp.Character then
-        refreshFlyCaches()
-        if state.flying then resumeFlyState() end
-    end
-
-    -- XRAY UI
-    local xrayRow = TabRow(3, "Environment XRay")
-    xrayBtnUI = C("TextButton", { Parent = xrayRow, Size = UDim2.new(0,70,1,0), Position = UDim2.new(0,130,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "XRAY: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 12 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, xrayBtnUI)
-
-    local xSliderFrame = C("Frame", { Parent = xrayRow, Size = UDim2.new(1,-215,1,0), Position = UDim2.new(0,210,0,0), BackgroundTransparency = 1 })
-    xrayBar = C("Frame", { Parent = xSliderFrame, Size = UDim2.new(0.7,0,0,6), Position = UDim2.new(0,0,0.5,-3), BackgroundColor3 = Color3.fromRGB(90,90,100), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, xrayBar)
-    xrayKnob = C("Frame", { Parent = xSliderFrame, Size = UDim2.fromOffset(14,14), Position = UDim2.new(0.5,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(230,230,235), BorderSizePixel = 0 })
-    C("UICorner", { CornerRadius = UDim.new(1,0) }, xrayKnob)
-    xrayValue = C("TextLabel", { Parent = xSliderFrame, Size = UDim2.new(0.3,0,1,0), Position = UDim2.new(0.7,5,0,0), BackgroundTransparency = 1, Text = string.format("%.2f", state.xrayIntensity), TextColor3 = Color3.fromRGB(220,220,230), Font = Enum.Font.Gotham, TextSize = 13 })
-    xrayKnob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            draggingXray = true
-        end
-    end)
-
-    local function cleanXray()
-        clearConnection("XrayRuntime")
-        for _, p in ipairs(CollectionService:GetTagged(XRAY_TAG)) do
-            pcall(function()
-                if p and p.Parent then
-                    p.Transparency = xrayOriginalParts[p] or 0
-                end
-                CollectionService:RemoveTag(p, XRAY_TAG)
-            end)
-        end
-        table.clear(xrayOriginalParts)
-    end
-
-    local function applyXrayToInstance(v)
-        if v:IsA("BasePart") and not isCharacterPart(v) and v.Transparency ~= 1 then
-            if not CollectionService:HasTag(v, XRAY_TAG) then
-                xrayOriginalParts[v] = v.Transparency
-                CollectionService:AddTag(v, XRAY_TAG)
-                v.Transparency = state.xrayIntensity
-            end
-        end
-    end
-
-    local function toggleXrayState()
+    -- ==================== XRAY ====================
+    local xrayOriginal = {}
+    local function toggleXray()
         state.xray = not state.xray
-        xrayBtnUI.Text = state.xray and "XRAY: ON" or "XRAY: OFF"
-        TweenService:Create(xrayBtnUI, TweenInfo.new(0.2), { BackgroundColor3 = state.xray and Color3.fromRGB(90,180,110) or Color3.fromRGB(70,70,80) }):Play()
         if state.xray then
-            local allItems = Workspace:GetDescendants()
-            task.spawn(function()
-                for i = 1, #allItems do
-                    if not state.xray then break end
-                    applyXrayToInstance(allItems[i])
-                    if i % Config.XRAY_BATCH_SIZE == 0 then task.wait() end
+            for _, v in pairs(Workspace:GetDescendants()) do
+                if v:IsA("BasePart") and not isCharacterPart(v) and v.Transparency ~= 1 then
+                    if xrayOriginal[v] == nil then xrayOriginal[v] = v.Transparency end
+                    v.Transparency = state.xrayIntensity
                 end
-            end)
-            local xrConn = Workspace.DescendantAdded:Connect(applyXrayToInstance)
-            registerConnection("XrayRuntime", xrConn)
+            end
         else
-            cleanXray()
+            for v, orig in pairs(xrayOriginal) do 
+                if v and v.Parent then v.Transparency = orig end 
+            end
+            table.clear(xrayOriginal)
         end
     end
 
-    xrayBtnUI.MouseButton1Click:Connect(toggleXrayState)
+    -- ==================== NOCLIP ====================
+    local originalCollisions = {}
+    local charParts = {}
+    local lastNoclipTime = 0
 
-    -- BRING PART UI
-    local scannerTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
-    C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Premium Object Scanner & Bring Tool ---", TextColor3 = Color3.fromRGB(150,130,220), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, scannerTitleRow)
-
-    local selectRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,72), BackgroundTransparency = 1 })
-
-    selectPartBtn = C("TextButton", { Parent = selectRow, Size = UDim2.new(0,140,0,32), Position = UDim2.new(0,0,0,0), BackgroundColor3 = Color3.fromRGB(90,63,150), BorderSizePixel = 0, Text = "🎯 Click & Select Part", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, selectPartBtn)
-
-    partNameBox = C("TextBox", { Parent = selectRow, Size = UDim2.new(0,175,0,32), Position = UDim2.new(0,0,0,38), BackgroundColor3 = Color3.fromRGB(55,55,60), BorderSizePixel = 0, Text = "", PlaceholderText = "Enter part name...", TextColor3 = Color3.fromRGB(240,240,245), PlaceholderColor3 = Color3.fromRGB(130,130,140), Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = true })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, partNameBox)
-
-    searchByNameBtn = C("TextButton", { Parent = selectRow, Size = UDim2.new(0,75,0,32), Position = UDim2.new(0,182,0,38), BackgroundColor3 = Color3.fromRGB(70,120,180), BorderSizePixel = 0, Text = "🔍 Find", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, searchByNameBtn)
-
-    selectedPartName = C("TextLabel", { Parent = selectRow, Size = UDim2.new(1,-265,0,32), Position = UDim2.new(0,265,0,38), BackgroundColor3 = Color3.fromRGB(45,45,50), Text = "Selected: None", TextColor3 = Color3.fromRGB(180,180,190), Font = Enum.Font.GothamSemibold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left })
-    C("UICorner", { CornerRadius = UDim.new(0,6) }, selectedPartName)
-
-    local infoRowBring = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,45), BackgroundTransparency = 1 })
-    partInfoLabel = C("TextLabel", { Parent = infoRowBring, Size = UDim2.new(1,0,1,0), BackgroundColor3 = Color3.fromRGB(25,25,30), Text = "Owner: N/A\nDistance: N/A | Status: Ready", TextColor3 = Color3.fromRGB(160,160,170), Font = Enum.Font.Gotham, TextSize = 11, TextYAlignment = Enum.TextYAlignment.Center })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, partInfoLabel)
-
-    local bringActionsRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,36), BackgroundTransparency = 1 })
-    C("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder }, bringActionsRow)
-
-    bringBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 1, Size = UDim2.new(0,100,1,0), BackgroundColor3 = Color3.fromRGB(180,70,70), Text = "🧲 Bring Part", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, bringBtn)
-
-    tpToPartBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 2, Size = UDim2.new(0,100,1,0), BackgroundColor3 = Color3.fromRGB(70,120,180), Text = "⚡ Teleport To", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, tpToPartBtn)
-
-    bringAllBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 3, Size = UDim2.new(0,110,1,0), BackgroundColor3 = Color3.fromRGB(140,60,160), Text = "🌀 Bring All Same", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, bringAllBtn)
-
-    reselectLastBtn = C("TextButton", { Parent = bringActionsRow, LayoutOrder = 4, Size = UDim2.new(0,100,1,0), BackgroundColor3 = Color3.fromRGB(60,60,65), Text = "🔄 Undo Select", TextColor3 = Color3.fromRGB(200,200,205), Font = Enum.Font.GothamMedium, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, reselectLastBtn)
-
-    toggleAnchoredBtn = C("TextButton", {
-        Parent = bringActionsRow,
-        LayoutOrder = 5,
-        Size = UDim2.new(0, 120, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(80, 80, 100),
-        BorderSizePixel = 0,
-        Text = "🔓 Anchored: OFF",
-        TextColor3 = Color3.fromRGB(235,235,240),
-        Font = Enum.Font.GothamBold,
-        TextSize = 11
-    })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, toggleAnchoredBtn)
-
-    resetAnchoredBtn = C("TextButton", {
-        Parent = bringActionsRow,
-        LayoutOrder = 6,
-        Size = UDim2.new(0, 100, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(100, 80, 60),
-        BorderSizePixel = 0,
-        Text = "🔄 Reset Anchored",
-        TextColor3 = Color3.fromRGB(235,235,240),
-        Font = Enum.Font.GothamBold,
-        TextSize = 11
-    })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, resetAnchoredBtn)
-
-    updateAnchoredButtonUI = function()
-        if not selectedPart then
-            if toggleAnchoredBtn then
-                toggleAnchoredBtn.Text = "🔓 Anchored: N/A"
-                toggleAnchoredBtn.BackgroundColor3 = Color3.fromRGB(80,80,100)
+    local function refreshCharPartsCache(char)
+        table.clear(charParts)
+        if not char then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(charParts, part)
+                if originalCollisions[part] == nil then
+                    originalCollisions[part] = part.CanCollide
+                end
             end
+        end
+    end
+
+    local function updateNoclip()
+        local char = lp.Character
+        if not state.noclip or not char or #charParts == 0 then return end
+        if time() - lastNoclipTime < 0.1 then return end
+        lastNoclipTime = time()
+        if state.silentNoclip then
+            local params = OverlapParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = {char}
+            for _, part in ipairs(charParts) do
+                if part and part.Parent and part.Name == "HumanoidRootPart" then
+                    local touching = Workspace:GetPartsInPart(part, params)
+                    if #touching > 0 then
+                        for _, p in ipairs(charParts) do if p then p.CanCollide = false end end
+                    else
+                        for _, p in ipairs(charParts) do if p then p.CanCollide = originalCollisions[p] or true end end
+                    end
+                    break
+                end
+            end
+        else
+            for _, part in ipairs(charParts) do
+                if part and part.Parent and part.CanCollide then part.CanCollide = false end
+            end
+        end
+    end
+
+    -- ==================== BRING PART & OBJECT SCANNER ====================
+    local selectedPart = nil
+    local lastSelectedPart = nil
+    local activeSelectionBox = nil
+    local originalAnchoredState = nil
+    local selectedPartNameLabel = nil
+    local partInfoLabel = nil
+    local toggleAnchoredBtn = nil
+    local resetAnchoredBtn = nil
+    local lockToMeBtn = nil
+    local freezeBtn = nil
+
+    local function applySelectionBoxToPart(part)
+        if activeSelectionBox then activeSelectionBox:Destroy() end
+        activeSelectionBox = nil
+        if not part then return end
+        activeSelectionBox = C("SelectionBox", {Color3=Color3.fromRGB(0,255,255), LineThickness=0.05, Adornee=part}, Workspace)
+    end
+
+    local function updateAnchoredButtonUI()
+        if not toggleAnchoredBtn then return end
+        if not selectedPart or not selectedPart.Parent then
+            toggleAnchoredBtn.Text = "🔓 Anchored: N/A"
+            toggleAnchoredBtn.BackgroundColor3 = Color3.fromRGB(80,80,100)
             return
         end
-        
         if selectedPart.Anchored then
             toggleAnchoredBtn.Text = "🔒 Anchored: ON"
             toggleAnchoredBtn.BackgroundColor3 = Color3.fromRGB(220,100,100)
@@ -1551,223 +986,59 @@
         end
     end
 
-    toggleAnchoredBtn.MouseButton1Click:Connect(function()
+    local function updateObjectScannerUI()
         if not selectedPart or not selectedPart.Parent then
-            if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
+            if selectedPartNameLabel then selectedPartNameLabel.Text = "Selected: None" end
+            if partInfoLabel then partInfoLabel.Text = "Owner: N/A\nDistance: N/A | Status: Idle" end
+            applySelectionBoxToPart(nil)
+            updateAnchoredButtonUI()
             return
         end
-        
-        if originalAnchoredState == nil then
-            originalAnchoredState = selectedPart.Anchored
+        if selectedPartNameLabel then selectedPartNameLabel.Text = "Selected: " .. string.sub(selectedPart.Name, 1, 16) end
+        local ownerStr = getPartNetworkOwner(selectedPart)
+        local distStr = "Infinite"
+        local char = lp.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local r = char.HumanoidRootPart
+            distStr = string.format("%d studs", math.floor((selectedPart.Position - r.Position).Magnitude))
         end
-        
-        local newState = not selectedPart.Anchored
-        pcall(function()
-            selectedPart.Anchored = newState
-        end)
-        
+        local anchoredStr = selectedPart.Anchored and "Anchored (Static)" or "Unanchored (Physics)"
+        if partInfoLabel then partInfoLabel.Text = string.format("Owner: %s | Dist: %s | Mode: %s", ownerStr, distStr, anchoredStr) end
         updateAnchoredButtonUI()
-        if partInfoLabel then partInfoLabel.Text = newState and "🔒 Part anchored!" or "🔓 Part unanchored!" end
-        updateObjectScannerUI()
-    end)
-
-    resetAnchoredBtn.MouseButton1Click:Connect(function()
-        if not selectedPart or not selectedPart.Parent then
-            if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
-            return
-        end
-        
-        if originalAnchoredState == nil then
-            originalAnchoredState = false
-        end
-        
-        pcall(function()
-            selectedPart.Anchored = originalAnchoredState
-        end)
-        
-        updateAnchoredButtonUI()
-        if partInfoLabel then partInfoLabel.Text = originalAnchoredState and "🔒 Restored anchored state!" or "🔓 Restored unanchored state!" end
-        updateObjectScannerUI()
-    end)
-
-    searchByNameBtn.MouseButton1Click:Connect(function()
-        local name = partNameBox.Text
-        if name == "" then
-            if partInfoLabel then partInfoLabel.Text = "⚠️ Please enter a part name!" end
-            return
-        end
-
-        if partInfoLabel then partInfoLabel.Text = "🔍 Searching..." end
-
-        task.spawn(function()
-            local found = Workspace:FindFirstChild(name, true)
-
-            if found and found:IsA("BasePart") then
-                if selectedPart then lastSelectedPart = selectedPart end
-                selectedPart = found
-                applySelectionBoxToPart(selectedPart)
-                updateObjectScannerUI()
-                if partInfoLabel then partInfoLabel.Text = string.format("✅ Found: %s", found.Name) end
-            else
-                if partInfoLabel then partInfoLabel.Text = "❌ No part named: " .. name end
-            end
-            partNameBox.Text = ""
-        end)
-    end)
-
-    selectPartBtn.MouseButton1Click:Connect(function()
-        clearConnection("BringSelectMouse")
-        selectPartBtn.Text = "🖱️ Click..."
-        selectPartBtn.BackgroundColor3 = Color3.fromRGB(200,140,40)
-
-        local mouse = lp:GetMouse()
-        local bSelectConn = mouse.Button1Down:Connect(function()
-            local target = mouse.Target
-            clearConnection("BringSelectMouse")
-            selectPartBtn.Text = "🎯 Select"
-            selectPartBtn.BackgroundColor3 = Color3.fromRGB(90,63,150)
-            if target then
-                if isCharacterPart(target) then
-                    if partInfoLabel then partInfoLabel.Text = "⚠️ Cannot select player parts!" end
-                    return
-                end
-                if selectedPart then lastSelectedPart = selectedPart end
-                selectedPart = target
-                applySelectionBoxToPart(selectedPart)
-                updateObjectScannerUI()
-            end
-        end)
-        registerConnection("BringSelectMouse", bSelectConn)
-    end)
-
-    reselectLastBtn.MouseButton1Click:Connect(function()
-        if lastSelectedPart and lastSelectedPart.Parent then
-            local temp = selectedPart
-            selectedPart = lastSelectedPart
-            lastSelectedPart = temp
-            applySelectionBoxToPart(selectedPart)
-            updateObjectScannerUI()
-        end
-    end)
+    end
 
     local function networkBring(part, targetCF)
         if not part or part.Anchored then return false end
-        pcall(function()
-            part.CFrame = targetCF
-            part.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            part.AssemblyAngularVelocity = Vector3.new(0,0,0)
-        end)
+        pcall(function() part.CFrame = targetCF; part.AssemblyLinearVelocity = Vector3.new(0,0,0); part.AssemblyAngularVelocity = Vector3.new(0,0,0) end)
         return true
     end
 
-    bringBtn.MouseButton1Click:Connect(function()
-        if not selectedPart or not selectedPart.Parent then return end
-        if selectedPart.Anchored then
-            if partInfoLabel then partInfoLabel.Text = "❌ Cannot bring anchored object!" end
-            return
-        end
-        if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    -- ==================== PHYSICS SANDBOX ====================
+    local lastPhysicsTime = 0
+    local lastPos = nil
+    local lastForceUpdate = 0
 
-        local root = lp.Character.HumanoidRootPart
-        local targetCF = root.CFrame * CFrame.new(0, 0, -4)
-        networkBring(selectedPart, targetCF)
-        if partInfoLabel then partInfoLabel.Text = "✅ Bring executed!" end
-        updateObjectScannerUI()
-    end)
-
-    tpToPartBtn.MouseButton1Click:Connect(function()
-        if not selectedPart or not selectedPart.Parent then return end
-        local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    local function updatePhysicsSandbox()
+        if time() - lastPhysicsTime < 0.03 then return end
+        lastPhysicsTime = time()
+        local char = lp.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
         if not root then return end
-        root.CFrame = selectedPart.CFrame * CFrame.new(0, 3, 0)
-        updateObjectScannerUI()
-    end)
-
-    bringAllBtn.MouseButton1Click:Connect(function()
-        if not selectedPart or not selectedPart.Parent then return end
-        if selectedPart.Anchored then
-            if partInfoLabel then partInfoLabel.Text = "❌ Master object is anchored!" end
-            return
-        end
-        if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
-
-        local name = selectedPart.Name
-        local count = 0
-        local targetCF = lp.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -5)
-
-        if partInfoLabel then partInfoLabel.Text = "🌀 Scanning..." end
-
-        task.spawn(function()
-            local allItems = Workspace:GetDescendants()
-            for i = 1, #allItems do
-                local p = allItems[i]
-                if p and p:IsA("BasePart") and p.Name == name and not p.Anchored and not isCharacterPart(p) then
-                    networkBring(p, targetCF)
-                    count = count + 1
-                end
-                if i % 150 == 0 then task.wait() end
-            end
-            if partInfoLabel then partInfoLabel.Text = string.format("🌀 Brought %d items!", count) end
-            updateObjectScannerUI()
-        end)
-    end)
-
-    -- PHYSICS SANDBOX
-    local sandboxTitleRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,24), BackgroundTransparency = 1 })
-    C("TextLabel", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = "--- Physics Sandbox Environment ---", TextColor3 = Color3.fromRGB(210,120,40), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center }, sandboxTitleRow)
-
-    local sandActionsRow = C("Frame", { Parent = tabContents[3], Size = UDim2.new(1,-10,0,36), BackgroundTransparency = 1 })
-    lockToMeBtn = C("TextButton", { Parent = sandActionsRow, Size = UDim2.new(0,180,1,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "🔒 Lock to Me: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, lockToMeBtn)
-
-    freezeBtn = C("TextButton", { Parent = sandActionsRow, Size = UDim2.new(0,180,1,0), Position = UDim2.new(0,195,0,0), BackgroundColor3 = Color3.fromRGB(70,70,80), BorderSizePixel = 0, Text = "🥶 Freeze: OFF", TextColor3 = Color3.fromRGB(235,235,240), Font = Enum.Font.GothamBold, TextSize = 11 })
-    C("UICorner", { CornerRadius = UDim.new(0,8) }, freezeBtn)
-
-    lockToMeBtn.MouseButton1Click:Connect(function()
-        if not selectedPart then
-            if partInfoLabel then partInfoLabel.Text = "⚠️ Select an object first!" end
-            return
-        end
-        state.lockToMeEnabled = not state.lockToMeEnabled
-        lockToMeBtn.Text = state.lockToMeEnabled and "🔒 Lock to Me: ON" or "🔒 Lock to Me: OFF"
-        TweenService:Create(lockToMeBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.lockToMeEnabled and Color3.fromRGB(210,120,40) or Color3.fromRGB(70,70,80) }):Play()
-    end)
-
-    freezeBtn.MouseButton1Click:Connect(function()
-        if not selectedPart then
-            if partInfoLabel then partInfoLabel.Text = "⚠️ Select an object first!" end
-            return
-        end
-        state.freezeEnabled = not state.freezeEnabled
-        freezeBtn.Text = state.freezeEnabled and "🥶 Freeze: ON" or "🥶 Freeze: OFF"
-        TweenService:Create(freezeBtn, TweenInfo.new(0.2), { BackgroundColor3 = state.freezeEnabled and Color3.fromRGB(90,140,210) or Color3.fromRGB(70,70,80) }):Play()
-    end)
-
-    local physicsSandboxConn = RunService.Heartbeat:Connect(function()
-        local now = time()
-        if now - lastPhysicsUpdate < Config.PHYSICS_THROTTLE_FPS then return end
-        lastPhysicsUpdate = now
-
-        if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
-        local root = lp.Character.HumanoidRootPart
         local currentPos = root.Position
-
         local shouldUpdate = false
-        if lastPosition and (currentPos - lastPosition).Magnitude > 0.1 then
+        if lastPos and (currentPos - lastPos).Magnitude > 0.1 then 
             shouldUpdate = true
-        elseif now - lastForceUpdate > Config.FORCE_UPDATE_INTERVAL then
+        elseif time() - lastForceUpdate > 2 then 
             shouldUpdate = true
-            lastForceUpdate = now
+            lastForceUpdate = time() 
         end
-
         if not shouldUpdate then return end
-        lastPosition = currentPos
-
+        lastPos = currentPos
         if not selectedPart or not selectedPart.Parent or selectedPart.Anchored then return end
-
         if state.lockToMeEnabled then
             local pOwner = getPartNetworkOwner(selectedPart)
-            if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
+            if pOwner == "Client (You)" or pOwner == "Server" or pOwner == "Static" then
                 pcall(function()
                     selectedPart.CFrame = root.CFrame * CFrame.new(0, 1, -5)
                     selectedPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
@@ -1775,142 +1046,649 @@
                 end)
             end
         end
-
         if state.freezeEnabled then
             local pOwner = getPartNetworkOwner(selectedPart)
-            if pOwner == "Client (You)" or pOwner == "Server (Unassigned)" or pOwner == "Static (Server)" then
+            if pOwner == "Client (You)" or pOwner == "Server" or pOwner == "Static" then
                 pcall(function()
                     selectedPart.AssemblyLinearVelocity = Vector3.new(0, 0.08, 0)
                     selectedPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
                 end)
             end
         end
-    end)
-    registerConnection("PhysicsSandboxCore", physicsSandboxConn)
-
-    -- INITIALIZATION
-    local function setupCharacterSignals(char)
-        clearConnection("CharDescendantAdded")
-        clearConnection("CharDescendantRemoving")
-        if not char then return end
-
-        refreshCharacterPartsCache(char)
-        hookMultiJumpState(char)
-
-        local addedC = char.DescendantAdded:Connect(function(p)
-            if p:IsA("BasePart") then
-                table.insert(characterPartsCache, p)
-                if originalCollisions[p] == nil then
-                    originalCollisions[p] = p.CanCollide
-                end
-                if state.noclip then
-                    p.CanCollide = false
-                end
-            end
-        end)
-        registerConnection("CharDescendantAdded", addedC)
-
-        local remC = char.DescendantRemoving:Connect(function(p)
-            local idx = table.find(characterPartsCache, p)
-            if idx then
-                table.remove(characterPartsCache, idx)
-            end
-        end)
-        registerConnection("CharDescendantRemoving", remC)
     end
 
-    local mainCharacterAdded = lp.CharacterAdded:Connect(function(char)
-        task.wait(0.2)
-        table.clear(originalCollisions)
-        table.clear(characterPartsCache)
-        setupCharacterSignals(char)
-        applyCharacterPhysics(char)
-        if state.flying then
-            resumeFlyState()
-        end
-    end)
-    registerConnection("MainCharacterAddedSignal", mainCharacterAdded)
+    -- ==================== CENTRAL HEARTBEAT ====================
+    registerConnection("CentralHeartbeat", RunService.Heartbeat:Connect(function()
+        updateNoclip()
+        updatePhysicsSandbox()
+    end))
 
-    if lp.Character then
-        setupCharacterSignals(lp.Character)
-        applyCharacterPhysics(lp.Character)
-    end
-    pcall(loadUIPreset)
-
-    -- SECURITY
-    local function periodicVerification()
+    -- ==================== DETECTIVE ====================
+    task.spawn(function()
         while state.scriptEnabled do
-            task.wait(Config.SECURITY_HEARTBEAT)
-            local allowed = false
-            for _, id in ipairs(Config.ALLOWED_USER_IDS) do
-                if id == lp.UserId then allowed = true end
-            end
-            if not allowed then
-                warn("[Security] Unauthorized modification detected! Shutting down.")
-                cleanupAll()
-            end
+            task.wait(1)
+            pcall(function()
+                if state.speedOn then
+                    local char = lp.Character
+                    if char then
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum and hum.WalkSpeed ~= state.speedValue then
+                            hum.WalkSpeed = state.speedValue
+                        end
+                    end
+                end
+                if state.flying then
+                    local char = lp.Character
+                    if char then
+                        local root = char:FindFirstChild("HumanoidRootPart")
+                        if root and state.flyMode == "Physics" and (not flyLinearVel or flyLinearVel.Parent ~= root) then
+                            pcall(function()
+                                stopFly()
+                                startFly()
+                            end)
+                        end
+                    end
+                end
+                if state.noclip and lp.Character and #charParts == 0 then refreshCharPartsCache(lp.Character) end
+                if state.esp then
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= lp and (not espConnections[plr.UserId] or not espConnections[plr.UserId].Connected) then
+                            setupESPForPlayer(plr)
+                        end
+                    end
+                end
+                updateActiveCounter()
+            end)
         end
-    end
-
-    task.spawn(periodicVerification)
-
-    -- MENU TOGGLE
-    CAS:BindAction("ToggleMenu_RShift", function(_, actionState)
-        if UIS:GetFocusedTextBox() then return end
-        if actionState == Enum.UserInputState.Begin then
-            state.hidden = not state.hidden
-            win.Visible = not state.hidden
-            for i = 1, #tabs do
-                tabContents[i].Visible = not state.hidden and (i == currentTab)
-            end
-            toggleBtn.Text = state.hidden and "Show" or "Hide"
-        end
-    end, false, Enum.KeyCode.RightShift)
-
-    toggleBtn.MouseButton1Click:Connect(function()
-        state.hidden = not state.hidden
-        win.Visible = not state.hidden
-        for i = 1, #tabs do
-            tabContents[i].Visible = not state.hidden and (i == currentTab)
-        end
-        toggleBtn.Text = state.hidden and "Show" or "Hide"
     end)
 
-    -- CLEANUP
-    cleanupAll = function()
+    -- ==================== UI ====================
+    local window, activeLabel, contentArea, sidebar, bottomBar
+    local draggingWindow = false
+    local dragStart = nil
+    local startPos = nil
+
+    local function countActiveFeatures()
+        return (state.speedOn and 1 or 0)
+            + ((state.jumpEnabled or state.infJump or state.multiJump) and 1 or 0)
+            + (state.noclip and 1 or 0)
+            + (state.esp and 1 or 0)
+            + (state.lootEsp and 1 or 0)
+            + (state.xray and 1 or 0)
+            + (state.flying and 1 or 0)
+            + (misc.antiAFK and 1 or 0)
+            + (misc.rejoinKick and 1 or 0)
+            + (misc.autoRejoin and 1 or 0)
+    end
+
+    local function updateActiveCounter()
+        if activeLabel then activeLabel.Text = tostring(countActiveFeatures()) .. " active" end
+    end
+
+    local function setupUI()
+        if pg:FindFirstChild("LinhScriptGUI") then pg:FindFirstChild("LinhScriptGUI"):Destroy() end
+
+        screenGui = C("ScreenGui", {Name="LinhScriptGUI", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=999}, CoreGui)
+
+        local Colors = {
+            BG = Color3.fromRGB(13,13,27), Panel = Color3.fromRGB(19,19,31), Sidebar = Color3.fromRGB(15,15,30),
+            Row = Color3.fromRGB(15,15,32), Border = Color3.fromRGB(42,42,64), Accent = Color3.fromRGB(108,71,255),
+            TextPri = Color3.fromRGB(200,200,232), TextSec = Color3.fromRGB(100,100,170), TextDim = Color3.fromRGB(68,68,106),
+            TogOff = Color3.fromRGB(42,42,68), White = Color3.fromRGB(255,255,255)
+        }
+
+        local function MakeCorner(p, r) local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,r or 8); c.Parent=p end
+        local function MakeStroke(p, c, t) local s=Instance.new("UIStroke"); s.Color=c or Colors.Border; s.Thickness=t or 1; s.Parent=p end
+        local function MakeFrame(props) local f=Instance.new("Frame"); for k,v in pairs(props) do f[k]=v end; return f end
+        local function MakeLabel(props) local l=Instance.new("TextLabel"); l.BackgroundTransparency=1; l.Font=Enum.Font.GothamMedium; l.TextXAlignment=Enum.TextXAlignment.Left; for k,v in pairs(props) do l[k]=v end; return l end
+        local function MakeButton(props) local b=Instance.new("TextButton"); b.AutoButtonColor=false; b.Font=Enum.Font.GothamMedium; for k,v in pairs(props) do b[k]=v end; return b end
+
+        window = MakeFrame({Size=UDim2.new(0,680,0,580), Position=UDim2.new(0.5,-340,0.5,-290), BackgroundColor3=Colors.Panel, BackgroundTransparency=1-misc.guiOpacity, Parent=screenGui})
+        MakeCorner(window,10); MakeStroke(window,Colors.Border,1)
+
+        local titleBar = MakeFrame({Size=UDim2.new(1,0,0,38), BackgroundColor3=Color3.fromRGB(26,26,46), Parent=window})
+        MakeCorner(titleBar,10)
+        MakeLabel({Size=UDim2.new(1,0,1,0), Text="✦  Linh Script Premium v10.7", TextColor3=Color3.fromRGB(136,136,170), TextSize=13, TextXAlignment=Enum.TextXAlignment.Center, Parent=titleBar})
+        
+        local minBtn = MakeButton({Size=UDim2.new(0,30,0,30), Position=UDim2.new(1,-35,0,4), BackgroundTransparency=1, Text="—", TextSize=16, TextColor3=Colors.White, Parent=titleBar})
+        local isMinimized = false
+        minBtn.MouseButton1Click:Connect(function()
+            isMinimized = not isMinimized
+            if contentArea then contentArea.Visible = not isMinimized end
+            if sidebar then sidebar.Visible = not isMinimized end
+            if bottomBar then bottomBar.Visible = not isMinimized end
+            TweenService:Create(window, TweenInfo.new(0.2), {Size = isMinimized and UDim2.new(0,680,0,38) or UDim2.new(0,680,0,580)}):Play()
+        end)
+
+        titleBar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                draggingWindow = true
+                dragStart = input.Position
+                startPos = window.Position
+            end
+        end)
+        UIS.InputChanged:Connect(function(input)
+            if draggingWindow and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Position - dragStart
+                window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+        UIS.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingWindow = false end
+        end)
+
+        sidebar = MakeFrame({Size=UDim2.new(0,80,1,-38), Position=UDim2.new(0,0,0,38), BackgroundColor3=Colors.Sidebar, Parent=window})
+        contentArea = MakeFrame({Size=UDim2.new(1,-80,1,-38), Position=UDim2.new(0,80,0,38), BackgroundTransparency=1, Parent=window})
+        
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1,0,1,-30)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 3
+        scroll.ScrollBarImageColor3 = Colors.Accent
+        scroll.CanvasSize = UDim2.new(0,0,0,0)
+        scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scroll.Parent = contentArea
+        local scrollLayout = Instance.new("UIListLayout"); scrollLayout.Padding = UDim.new(0,4); scrollLayout.Parent = scroll
+        local scrollPad = Instance.new("UIPadding"); scrollPad.PaddingLeft = UDim.new(0,12); scrollPad.PaddingRight = UDim.new(0,12); scrollPad.PaddingTop = UDim.new(0,10); scrollPad.PaddingBottom = UDim.new(0,10); scrollPad.Parent = scroll
+
+        bottomBar = MakeFrame({Size=UDim2.new(1,-80,0,30), Position=UDim2.new(0,80,1,-30), BackgroundColor3=Color3.fromRGB(10,10,24), Parent=window})
+        MakeLabel({Size=UDim2.new(0.5,0,1,0), Position=UDim2.new(0,10,0,0), Text="Linh Script Premium", TextSize=11, TextColor3=Colors.TextDim, Parent=bottomBar})
+        activeLabel = MakeLabel({Size=UDim2.new(0.5,0,1,0), Position=UDim2.new(0.5,-10,0,0), Text="0 active", TextSize=11, TextColor3=Colors.Accent, TextXAlignment=Enum.TextXAlignment.Right, Parent=bottomBar})
+
+        -- Helper UI components
+        local function MakeToggle(parent, getter, setter)
+            local track = MakeFrame({Size=UDim2.new(0,36,0,20), Position=UDim2.new(1,-46,0.5,-10), BackgroundColor3=getter() and Colors.Accent or Colors.TogOff, Parent=parent})
+            MakeCorner(track,10)
+            local knob = MakeFrame({Size=UDim2.new(0,14,0,14), Position=getter() and UDim2.new(0,19,0,3) or UDim2.new(0,3,0,3), BackgroundColor3=Colors.White, Parent=track})
+            MakeCorner(knob,7)
+            local btn = MakeButton({Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="", Parent=track})
+            local busy = false
+            local function Refresh()
+                local on = getter()
+                TweenService:Create(track, TweenInfo.new(0.15), {BackgroundColor3 = on and Colors.Accent or Colors.TogOff}):Play()
+                TweenService:Create(knob, TweenInfo.new(0.15), {Position = on and UDim2.new(0,19,0,3) or UDim2.new(0,3,0,3)}):Play()
+                updateActiveCounter()
+            end
+            btn.MouseButton1Click:Connect(function()
+                if busy then return end; busy = true
+                setter(not getter())
+                Refresh(); SaveConfig(); task.delay(0.12, function() busy = false end)
+            end)
+            Refresh()
+            return track
+        end
+
+        local function MakeSliderRow(parent, name, getter, setter, minVal, maxVal)
+            local row = MakeFrame({Size=UDim2.new(1,0,0,52), BackgroundColor3=Colors.Row, Parent=parent})
+            MakeCorner(row,7); MakeStroke(row,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(1,0,0,22), Position=UDim2.new(0,12,0,6), Text=name, TextSize=13, TextColor3=Colors.TextPri, Parent=row})
+            local valLabel = MakeLabel({Size=UDim2.new(1,0,0,18), Position=UDim2.new(0,12,0,28), Text=tostring(getter()), TextSize=11, TextColor3=Colors.Accent, Parent=row})
+            local sliderBG = MakeFrame({Size=UDim2.new(1,-24,0,4), Position=UDim2.new(0,12,0,42), BackgroundColor3=Colors.TogOff, Parent=row})
+            MakeCorner(sliderBG,2)
+            local pct = (getter()-minVal)/(maxVal-minVal)
+            local fill = MakeFrame({Size=UDim2.new(pct,0,1,0), BackgroundColor3=Colors.Accent, Parent=sliderBG})
+            MakeCorner(fill,2)
+            local btn = MakeButton({Size=UDim2.new(1,0,3,0), Position=UDim2.new(0,0,-1,0), BackgroundTransparency=1, Text="", Parent=sliderBG})
+            local dragging = false
+            btn.MouseButton1Down:Connect(function() dragging = true end)
+            UIS.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end)
+            UIS.InputChanged:Connect(function(i)
+                if dragging and i.UserInputType==Enum.UserInputType.MouseMovement then
+                    local abs = sliderBG.AbsolutePosition; local sz = sliderBG.AbsoluteSize
+                    if sz.X>0 then
+                        local pct = math.clamp((i.Position.X-abs.X)/sz.X,0,1)
+                        local val = math.floor(minVal + pct * (maxVal - minVal))
+                        setter(val)
+                        valLabel.Text = tostring(val)
+                        fill.Size = UDim2.new(pct,0,1,0)
+                        SaveConfig()
+                    end
+                end
+            end)
+            return row
+        end
+
+        local function MakeFeatureRow(parent, icon, name, desc, getter, setter)
+            local row = MakeFrame({Size=UDim2.new(1,0,0,52), BackgroundColor3=Colors.Row, Parent=parent})
+            MakeCorner(row,7); MakeStroke(row,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text=icon, TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=row})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text=name, TextSize=13, TextColor3=Colors.TextPri, Parent=row})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text=desc, TextSize=11, TextColor3=Colors.TextSec, Parent=row})
+            MakeToggle(row, getter, setter)
+            return row
+        end
+
+        -- Build Player Tab
+        local function BuildPlayerTab()
+            for _, c in ipairs(scroll:GetChildren()) do if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end end
+
+            -- Speed với toggle đã sửa
+            local speedRow = MakeFrame({Size=UDim2.new(1,0,0,52), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(speedRow,7); MakeStroke(speedRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="🏃", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=speedRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="WalkSpeed", TextSize=13, TextColor3=Colors.TextPri, Parent=speedRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Tăng tốc độ di chuyển", TextSize=11, TextColor3=Colors.TextSec, Parent=speedRow})
+            MakeToggle(speedRow, function() return state.speedOn end, function(v) toggleSpeed() end)
+            
+            MakeSliderRow(scroll, "Speed Value", function() return state.speedValue end, function(v) state.speedValue=v; if state.speedOn then updateSpeedHeartbeat() end, 16, 500)
+
+            MakeFeatureRow(scroll, "🦘", "Jump Power", "Tăng chiều cao nhảy", function() return state.jumpEnabled end, function(v)
+                state.jumpEnabled = v
+                if not v and currentHumanoid then restoreJumpBase()
+                elseif v and currentHumanoid then enforceJumpValue(currentHumanoid) end
+            end)
+            MakeSliderRow(scroll, "Jump Height", function() return state.jumpHeight end, function(v) state.jumpHeight=v; if state.jumpEnabled and currentHumanoid then enforceJumpValue(currentHumanoid) end end, 50, 180)
+
+            local infRow = MakeFrame({Size=UDim2.new(1,0,0,44), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(infRow,7); MakeStroke(infRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="∞", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=infRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="Inf Jump", TextSize=13, TextColor3=Colors.TextPri, Parent=infRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Nhảy vô hạn trên không", TextSize=11, TextColor3=Colors.TextSec, Parent=infRow})
+            MakeToggle(infRow, function() return state.infJump end, function(v) state.infJump=v; if v and state.multiJump then state.multiJump=false end end)
+
+            local multiRow = MakeFrame({Size=UDim2.new(1,0,0,44), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(multiRow,7); MakeStroke(multiRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="🔄", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=multiRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="Multi Jump", TextSize=13, TextColor3=Colors.TextPri, Parent=multiRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Nhảy nhiều lần trên không", TextSize=11, TextColor3=Colors.TextSec, Parent=multiRow})
+            MakeToggle(multiRow, function() return state.multiJump end, function(v) state.multiJump=v; if v and state.infJump then state.infJump=false end end)
+
+            local noclipRow = MakeFrame({Size=UDim2.new(1,0,0,52), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(noclipRow,7); MakeStroke(noclipRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="🔮", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=noclipRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="Noclip", TextSize=13, TextColor3=Colors.TextPri, Parent=noclipRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Đi xuyên tường", TextSize=11, TextColor3=Colors.TextSec, Parent=noclipRow})
+            MakeToggle(noclipRow, function() return state.noclip end, function(v)
+                state.noclip = v
+                if not v then
+                    for part, orig in pairs(originalCollisions) do if part and part.Parent then pcall(function() part.CanCollide = orig end) end end
+                else
+                    local char = lp.Character
+                    if char then refreshCharPartsCache(char) end
+                end
+            end)
+
+            local silentRow = MakeFrame({Size=UDim2.new(1,0,0,44), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(silentRow,7); MakeStroke(silentRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="🤫", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=silentRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="Silent Noclip", TextSize=13, TextColor3=Colors.TextPri, Parent=silentRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Chỉ noclip khi gần tường", TextSize=11, TextColor3=Colors.TextSec, Parent=silentRow})
+            MakeToggle(silentRow, function() return state.silentNoclip end, function(v) state.silentNoclip=v end)
+
+            MakeFeatureRow(scroll, "👁", "Player ESP", "Hiển thị người chơi", function() return state.esp end, function(v) state.esp=v; if v then enableESP() else disableESP() end end)
+            MakeFeatureRow(scroll, "📦", "Loot ESP", "Hiển thị vật phẩm", function() return state.lootEsp end, function(v) state.lootEsp=v; if not v then for _, data in pairs(lootBillboards) do if data.bb then data.bb:Destroy() end end; table.clear(lootBillboards) end end)
+            MakeFeatureRow(scroll, "🔍", "XRay", "Nhìn xuyên tường", function() return state.xray end, function(v) toggleXray() end)
+            MakeSliderRow(scroll, "XRay Intensity", function() return state.xrayIntensity end, function(v) state.xrayIntensity=v; if state.xray then for _, p in ipairs(CollectionService:GetTagged("XrayManaged")) do p.Transparency=v end end end, 0.3, 0.9)
+            MakeFeatureRow(scroll, "🦅", "Fly (B)", "Bay lượn, nhấn B để bật/tắt", function() return state.flying end, function(v) toggleFly() end)
+            MakeSliderRow(scroll, "Fly Speed", function() return state.flySpeed end, function(v) state.flySpeed=math.min(v, Config.FLY_SPEED_MAX) end, 20, 300)
+
+            task.wait()
+            scroll.CanvasSize = UDim2.new(0,0,0, scrollLayout.AbsoluteContentSize.Y + 20)
+        end
+
+        -- Build Misc Tab
+        local function BuildMiscTab()
+            for _, c in ipairs(scroll:GetChildren()) do if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end end
+
+            local antiRow = MakeFrame({Size=UDim2.new(1,0,0,44), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(antiRow,7); MakeStroke(antiRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="🎯", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=antiRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="Anti AFK", TextSize=13, TextColor3=Colors.TextPri, Parent=antiRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Chống kick khi AFK", TextSize=11, TextColor3=Colors.TextSec, Parent=antiRow})
+            MakeToggle(antiRow, function() return misc.antiAFK end, function(v) misc.antiAFK=v; if v then startAntiAFK() else stopAntiAFK() end end)
+
+            local rejoinRow = MakeFrame({Size=UDim2.new(1,0,0,44), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(rejoinRow,7); MakeStroke(rejoinRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="🔄", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=rejoinRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="Rejoin on Kick", TextSize=13, TextColor3=Colors.TextPri, Parent=rejoinRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Tự rejoin khi bị kick", TextSize=11, TextColor3=Colors.TextSec, Parent=rejoinRow})
+            MakeToggle(rejoinRow, function() return misc.rejoinKick end, function(v) misc.rejoinKick=v; if v then startRejoinKick() else stopRejoinKick() end end)
+
+            local autoRow = MakeFrame({Size=UDim2.new(1,0,0,44), BackgroundColor3=Colors.Row, Parent=scroll})
+            MakeCorner(autoRow,7); MakeStroke(autoRow,Colors.Border,1)
+            MakeLabel({Size=UDim2.new(0,24,1,0), Position=UDim2.new(0,10,0,0), Text="↩", TextSize=16, TextColor3=Colors.TextPri, TextXAlignment=Enum.TextXAlignment.Center, Parent=autoRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,20), Position=UDim2.new(0,42,0,8), Text="Auto Rejoin", TextSize=13, TextColor3=Colors.TextPri, Parent=autoRow})
+            MakeLabel({Size=UDim2.new(1,-100,0,16), Position=UDim2.new(0,42,0,26), Text="Rejoin khi server tắt", TextSize=11, TextColor3=Colors.TextSec, Parent=autoRow})
+            MakeToggle(autoRow, function() return misc.autoRejoin end, function(v) misc.autoRejoin=v; if v then startAutoRejoin() end end)
+
+            task.wait()
+            scroll.CanvasSize = UDim2.new(0,0,0, scrollLayout.AbsoluteContentSize.Y + 20)
+        end
+
+        -- Build Tools Tab
+        local function BuildToolsTab()
+            for _, c in ipairs(scroll:GetChildren()) do if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end end
+
+            MakeLabel({Size=UDim2.new(1,0,0,24), Text="--- Premium Object Scanner & Bring Tool ---", TextSize=12, TextColor3=Colors.Accent, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Center, Parent=scroll})
+
+            local selectRow = MakeFrame({Size=UDim2.new(1,0,0,72), BackgroundTransparency=1, Parent=scroll})
+            local selectPartBtn = MakeButton({Size=UDim2.new(0,140,0,32), Position=UDim2.new(0,0,0,0), BackgroundColor3=Color3.fromRGB(90,63,150), Text="🎯 Click & Select Part", TextSize=11, TextColor3=Colors.White, Parent=selectRow})
+            MakeCorner(selectPartBtn,8)
+            local partNameBox = Instance.new("TextBox")
+            partNameBox.Size = UDim2.new(0,175,0,32); partNameBox.Position = UDim2.new(0,0,0,38)
+            partNameBox.BackgroundColor3 = Color3.fromRGB(55,55,60); partNameBox.TextColor3 = Colors.TextPri
+            partNameBox.PlaceholderText = "Enter part name..."; partNameBox.TextSize = 12; partNameBox.ClearTextOnFocus = true
+            partNameBox.Parent = selectRow
+            MakeCorner(partNameBox,8)
+            local searchByNameBtn = MakeButton({Size=UDim2.new(0,75,0,32), Position=UDim2.new(0,182,0,38), BackgroundColor3=Color3.fromRGB(70,120,180), Text="🔍 Find", TextSize=11, TextColor3=Colors.White, Parent=selectRow})
+            MakeCorner(searchByNameBtn,8)
+            selectedPartNameLabel = MakeLabel({Size=UDim2.new(1,-265,0,32), Position=UDim2.new(0,265,0,38), BackgroundColor3=Color3.fromRGB(45,45,50), Text="Selected: None", TextColor3=Colors.TextSec, Font=Enum.Font.GothamSemibold, TextSize=12})
+            MakeCorner(selectedPartNameLabel,6)
+
+            local infoRowBring = MakeFrame({Size=UDim2.new(1,0,0,45), BackgroundTransparency=1, Parent=scroll})
+            partInfoLabel = MakeLabel({Size=UDim2.new(1,0,1,0), BackgroundColor3=Color3.fromRGB(25,25,30), Text="Owner: N/A\nDistance: N/A | Status: Ready", TextColor3=Colors.TextDim, Font=Enum.Font.Gotham, TextSize=11, TextYAlignment=Enum.TextYAlignment.Center})
+            MakeCorner(partInfoLabel,8); partInfoLabel.Parent = infoRowBring
+
+            local bringActionsRow = MakeFrame({Size=UDim2.new(1,0,0,36), BackgroundTransparency=1, Parent=scroll})
+            local actionLayout = Instance.new("UIListLayout")
+            actionLayout.FillDirection = Enum.FillDirection.Horizontal
+            actionLayout.Padding = UDim.new(0,6)
+            actionLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            actionLayout.Parent = bringActionsRow
+
+            local bringBtn = MakeButton({LayoutOrder=1, Size=UDim2.new(0,95,0,32), BackgroundColor3=Color3.fromRGB(180,70,70), Text="🧲 Bring", TextSize=11, TextColor3=Colors.White, Parent=bringActionsRow})
+            MakeCorner(bringBtn,8)
+            local tpToPartBtn = MakeButton({LayoutOrder=2, Size=UDim2.new(0,95,0,32), BackgroundColor3=Color3.fromRGB(70,120,180), Text="⚡ Teleport", TextSize=11, TextColor3=Colors.White, Parent=bringActionsRow})
+            MakeCorner(tpToPartBtn,8)
+            local bringAllBtn = MakeButton({LayoutOrder=3, Size=UDim2.new(0,100,0,32), BackgroundColor3=Color3.fromRGB(140,60,160), Text="🌀 Bring All", TextSize=11, TextColor3=Colors.White, Parent=bringActionsRow})
+            MakeCorner(bringAllBtn,8)
+            local reselectLastBtn = MakeButton({LayoutOrder=4, Size=UDim2.new(0,90,0,32), BackgroundColor3=Color3.fromRGB(60,60,65), Text="🔄 Undo", TextSize=11, TextColor3=Colors.White, Parent=bringActionsRow})
+            MakeCorner(reselectLastBtn,8)
+            toggleAnchoredBtn = MakeButton({LayoutOrder=5, Size=UDim2.new(0,110,0,32), BackgroundColor3=Color3.fromRGB(80,80,100), Text="🔓 Anchored: OFF", TextSize=11, TextColor3=Colors.White, Parent=bringActionsRow})
+            MakeCorner(toggleAnchoredBtn,8)
+            resetAnchoredBtn = MakeButton({LayoutOrder=6, Size=UDim2.new(0,100,0,32), BackgroundColor3=Color3.fromRGB(100,80,60), Text="🔄 Reset", TextSize=11, TextColor3=Colors.White, Parent=bringActionsRow})
+            MakeCorner(resetAnchoredBtn,8)
+
+            -- Events
+            selectPartBtn.MouseButton1Click:Connect(function()
+                selectPartBtn.Text = "🖱️ Click..."
+                local mouse = lp:GetMouse()
+                local bSelectConn = mouse.Button1Down:Connect(function()
+                    local target = mouse.Target
+                    clearConnection("BringSelectMouse")
+                    selectPartBtn.Text = "🎯 Select"
+                    if target then
+                        if isCharacterPart(target) then
+                            if partInfoLabel then partInfoLabel.Text = "⚠️ Cannot select player parts!" end
+                            return
+                        end
+                        if selectedPart then lastSelectedPart = selectedPart end
+                        selectedPart = target
+                        applySelectionBoxToPart(selectedPart)
+                        updateObjectScannerUI()
+                    end
+                end)
+                registerConnection("BringSelectMouse", bSelectConn)
+            end)
+
+            searchByNameBtn.MouseButton1Click:Connect(function()
+                local name = partNameBox.Text
+                if name == "" then
+                    if partInfoLabel then partInfoLabel.Text = "⚠️ Please enter a part name!" end
+                    return
+                end
+                if partInfoLabel then partInfoLabel.Text = "🔍 Searching..." end
+                task.spawn(function()
+                    local found = Workspace:FindFirstChild(name, true)
+                    if found and found:IsA("BasePart") then
+                        if selectedPart then lastSelectedPart = selectedPart end
+                        selectedPart = found
+                        applySelectionBoxToPart(selectedPart)
+                        updateObjectScannerUI()
+                        if partInfoLabel then partInfoLabel.Text = string.format("✅ Found: %s", found.Name) end
+                    else
+                        if partInfoLabel then partInfoLabel.Text = "❌ No part named: " .. name end
+                    end
+                    partNameBox.Text = ""
+                end)
+            end)
+
+            reselectLastBtn.MouseButton1Click:Connect(function()
+                if lastSelectedPart and lastSelectedPart.Parent then
+                    local temp = selectedPart
+                    selectedPart = lastSelectedPart
+                    lastSelectedPart = temp
+                    applySelectionBoxToPart(selectedPart)
+                    updateObjectScannerUI()
+                end
+            end)
+
+            bringBtn.MouseButton1Click:Connect(function()
+                if selectedPart and selectedPart.Parent and not selectedPart.Anchored and lp.Character then
+                    local root = lp.Character:FindFirstChild("HumanoidRootPart")
+                    if root then networkBring(selectedPart, root.CFrame * CFrame.new(0,0,-4)) end
+                end
+            end)
+
+            tpToPartBtn.MouseButton1Click:Connect(function()
+                if selectedPart and selectedPart.Parent and lp.Character then
+                    local root = lp.Character:FindFirstChild("HumanoidRootPart")
+                    if root then root.CFrame = selectedPart.CFrame * CFrame.new(0,3,0) end
+                end
+            end)
+
+            bringAllBtn.MouseButton1Click:Connect(function()
+                if not selectedPart or selectedPart.Anchored then return end
+                local name = selectedPart.Name
+                local count = 0
+                local targetCF = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") and lp.Character.HumanoidRootPart.CFrame * CFrame.new(0,0,-5)
+                if targetCF then
+                    for _, p in pairs(Workspace:GetDescendants()) do
+                        if p:IsA("BasePart") and p.Name == name and not p.Anchored and not isCharacterPart(p) then
+                            networkBring(p, targetCF)
+                            count = count + 1
+                        end
+                    end
+                    if partInfoLabel then partInfoLabel.Text = string.format("🌀 Brought %d items!", count) end
+                end
+            end)
+
+            toggleAnchoredBtn.MouseButton1Click:Connect(function()
+                if not selectedPart or not selectedPart.Parent then
+                    if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
+                    return
+                end
+                if originalAnchoredState == nil then originalAnchoredState = selectedPart.Anchored end
+                local newState = not selectedPart.Anchored
+                pcall(function() selectedPart.Anchored = newState end)
+                updateAnchoredButtonUI()
+                if partInfoLabel then partInfoLabel.Text = newState and "🔒 Part anchored!" or "🔓 Part unanchored!" end
+                updateObjectScannerUI()
+            end)
+
+            resetAnchoredBtn.MouseButton1Click:Connect(function()
+                if not selectedPart or not selectedPart.Parent then
+                    if partInfoLabel then partInfoLabel.Text = "⚠️ No part selected!" end
+                    return
+                end
+                if originalAnchoredState == nil then originalAnchoredState = false end
+                pcall(function() selectedPart.Anchored = originalAnchoredState end)
+                updateAnchoredButtonUI()
+                if partInfoLabel then partInfoLabel.Text = originalAnchoredState and "🔒 Restored anchored state!" or "🔓 Restored unanchored state!" end
+                updateObjectScannerUI()
+            end)
+
+            MakeLabel({Size=UDim2.new(1,0,0,24), Text="--- Physics Sandbox Environment ---", TextSize=12, TextColor3=Color3.fromRGB(210,120,40), Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Center, Parent=scroll})
+
+            local sandActionsRow = MakeFrame({Size=UDim2.new(1,0,0,36), BackgroundTransparency=1, Parent=scroll})
+            lockToMeBtn = MakeButton({Size=UDim2.new(0,180,1,0), BackgroundColor3=Color3.fromRGB(70,70,80), Text="🔒 Lock to Me: OFF", TextSize=11, TextColor3=Colors.White, Parent=sandActionsRow})
+            MakeCorner(lockToMeBtn,8)
+            freezeBtn = MakeButton({Size=UDim2.new(0,180,1,0), Position=UDim2.new(0,195,0,0), BackgroundColor3=Color3.fromRGB(70,70,80), Text="🥶 Freeze: OFF", TextSize=11, TextColor3=Colors.White, Parent=sandActionsRow})
+            MakeCorner(freezeBtn,8)
+
+            lockToMeBtn.MouseButton1Click:Connect(function()
+                if not selectedPart then
+                    if partInfoLabel then partInfoLabel.Text = "⚠️ Select an object first!" end
+                    return
+                end
+                state.lockToMeEnabled = not state.lockToMeEnabled
+                lockToMeBtn.Text = state.lockToMeEnabled and "🔒 Lock to Me: ON" or "🔒 Lock to Me: OFF"
+                TweenService:Create(lockToMeBtn, TweenInfo.new(0.2), {BackgroundColor3 = state.lockToMeEnabled and Color3.fromRGB(210,120,40) or Color3.fromRGB(70,70,80)}):Play()
+            end)
+
+            freezeBtn.MouseButton1Click:Connect(function()
+                if not selectedPart then
+                    if partInfoLabel then partInfoLabel.Text = "⚠️ Select an object first!" end
+                    return
+                end
+                state.freezeEnabled = not state.freezeEnabled
+                freezeBtn.Text = state.freezeEnabled and "🥶 Freeze: ON" or "🥶 Freeze: OFF"
+                TweenService:Create(freezeBtn, TweenInfo.new(0.2), {BackgroundColor3 = state.freezeEnabled and Color3.fromRGB(90,140,210) or Color3.fromRGB(70,70,80)}):Play()
+            end)
+
+            updateAnchoredButtonUI()
+            updateObjectScannerUI()
+            task.wait()
+            scroll.CanvasSize = UDim2.new(0,0,0, scrollLayout.AbsoluteContentSize.Y + 20)
+        end
+
+        -- Build Settings Tab
+        local function BuildSettingsTab()
+            for _, c in ipairs(scroll:GetChildren()) do if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end end
+
+            MakeLabel({Size=UDim2.new(1,0,0,24), Text="--- Settings ---", TextSize=12, TextColor3=Colors.Accent, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Center, Parent=scroll})
+            MakeSliderRow(scroll, "GUI Opacity", function() return misc.guiOpacity end, function(v)
+                misc.guiOpacity = math.clamp(v, 0.5, 1)
+                if window then window.BackgroundTransparency = 1 - misc.guiOpacity end
+                SaveConfig()
+            end, 0.5, 1)
+            MakeFeatureRow(scroll, "💾", "Auto Save Config", "Tự lưu cấu hình khi đổi", function() return misc.autoSave end, function(v)
+                misc.autoSave = v
+                SaveConfig()
+            end)
+
+            local saveBtn = MakeButton({Size=UDim2.new(1,0,0,36), BackgroundColor3=Colors.Accent, Text="Save Config Now", TextSize=13, TextColor3=Colors.White, Font=Enum.Font.GothamBold, Parent=scroll})
+            MakeCorner(saveBtn,7)
+            saveBtn.MouseButton1Click:Connect(function()
+                local old = saveBtn.Text
+                SaveConfig()
+                saveBtn.Text = "✅ Saved!"
+                task.delay(1.5, function() if saveBtn and saveBtn.Parent then saveBtn.Text = old end end)
+            end)
+
+            task.wait()
+            scroll.CanvasSize = UDim2.new(0,0,0, scrollLayout.AbsoluteContentSize.Y + 20)
+        end
+
+        -- Tab switching
+        local navBtns = {}
+        local currentTab = "player"
+        local function ClearScroll()
+            for _, c in ipairs(scroll:GetChildren()) do
+                if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+            end
+        end
+
+        local function MakeNavBtn(icon, label, tabKey, yPos)
+            local btn = MakeButton({Size=UDim2.new(1,-12,0,56), Position=UDim2.new(0,6,0,yPos), BackgroundColor3=Colors.Sidebar, BackgroundTransparency=1, Text="", Parent=sidebar})
+            if not btn then return nil end
+            MakeCorner(btn,6)
+            local stroke = MakeStroke(btn, Color3.fromRGB(0,0,0), 1)
+            if stroke then stroke.Transparency = 1 end
+            MakeLabel({Size=UDim2.new(1,0,0,24), Position=UDim2.new(0,0,0,6), Text=icon, TextSize=20, TextColor3=Colors.TextSec, TextXAlignment=Enum.TextXAlignment.Center, Parent=btn})
+            local lbl = MakeLabel({Size=UDim2.new(1,0,0,16), Position=UDim2.new(0,0,0,30), Text=label, TextSize=10, TextColor3=Colors.TextSec, TextXAlignment=Enum.TextXAlignment.Center, Parent=btn})
+            btn.MouseButton1Click:Connect(function()
+                currentTab = tabKey
+                for _, nb in pairs(navBtns) do
+                    if nb and nb.btn then
+                        local active = (nb.key == tabKey)
+                        TweenService:Create(nb.btn, TweenInfo.new(0.15), {BackgroundTransparency = active and 0 or 1, BackgroundColor3 = active and Color3.fromRGB(108,71,255) or Colors.Sidebar}):Play()
+                        if nb.stroke then nb.stroke.Transparency = active and 0.7 or 1 end
+                        if nb.lbl then nb.lbl.TextColor3 = active and Color3.fromRGB(168,139,255) or Colors.TextSec end
+                    end
+                end
+                if tabKey == "player" then BuildPlayerTab()
+                elseif tabKey == "misc" then BuildMiscTab()
+                elseif tabKey == "tools" then BuildToolsTab()
+                elseif tabKey == "settings" then BuildSettingsTab() end
+            end)
+            return { btn = btn, stroke = stroke, lbl = lbl, key = tabKey }
+        end
+
+        local navData = MakeNavBtn("👤", "Player", "player", 12)
+        if navData then table.insert(navBtns, navData) end
+        navData = MakeNavBtn("⚙", "Misc", "misc", 12+64)
+        if navData then table.insert(navBtns, navData) end
+        navData = MakeNavBtn("🧰", "Tools", "tools", 12+128)
+        if navData then table.insert(navBtns, navData) end
+        navData = MakeNavBtn("🔧", "Settings", "settings", 12+192)
+        if navData then table.insert(navBtns, navData) end
+
+        BuildPlayerTab()
+        updateActiveCounter()
+    end
+
+    -- ==================== ANTI-AFK, REJOIN ====================
+    local function startAntiAFK()
+        registerConnection("AntiAFK", lp.Idled:Connect(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+            task.wait(0.1)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+        end))
+    end
+    local function stopAntiAFK() clearConnection("AntiAFK") end
+
+    local function startRejoinKick()
+        registerConnection("RejoinKick", lp.OnTeleport:Connect(function(state)
+            if state == Enum.TeleportState.Failed then
+                task.wait(3)
+                pcall(function() TeleportService:Teleport(game.PlaceId, lp) end)
+            end
+        end))
+    end
+    local function stopRejoinKick() clearConnection("RejoinKick") end
+
+    local function startAutoRejoin() misc.autoRejoin = true end
+
+    -- ==================== HOTKEY ====================
+    registerConnection("UIToggle", UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.RightShift or input.KeyCode == Enum.KeyCode.Insert then
+            if screenGui then screenGui.Enabled = not screenGui.Enabled end
+        end
+    end))
+
+    CAS:BindAction("FlyKey", function(_, actionState)
+        if actionState == Enum.UserInputState.Begin then toggleFly() end
+    end, false, Enum.KeyCode.B)
+
+    -- ==================== INIT ====================
+    setupUI()
+    if misc.antiAFK then startAntiAFK() end
+    if misc.rejoinKick then startRejoinKick() end
+    if misc.autoRejoin then startAutoRejoin() end
+    if state.esp then enableESP() end
+    if state.xray then toggleXray() end
+    if state.noclip and lp.Character then refreshCharPartsCache(lp.Character) end
+    syncFlyButton()
+    updateActiveCounter()
+
+    -- ==================== CLEANUP ====================
+    local function cleanupAll()
         print("[System] Unloading...")
         state.scriptEnabled = false
-        state.lootPipelineActive = false
-
-        if state.xray then toggleXrayState() end
-        clearLootEsp()
-
-        for _, p in ipairs(Players:GetPlayers()) do
-            removeESP(p, true)
-        end
         stopFly()
-        
-        if flyLinearVelocity then pcall(function() flyLinearVelocity:Destroy() end); flyLinearVelocity = nil end
-        if flyAlignOrientation then pcall(function() flyAlignOrientation:Destroy() end); flyAlignOrientation = nil end
-        if flyAttachment then pcall(function() flyAttachment:Destroy() end); flyAttachment = nil end
-
+        if state.xray then toggleXray() end
         for id, conn in pairs(ConnectionRegistry) do
             if conn then pcall(function() conn:Disconnect() end) end
         end
         table.clear(ConnectionRegistry)
-
-        if activeSelectionBox then pcall(function() activeSelectionBox:Destroy() end) end
-        if screen then pcall(function() screen:Destroy() end) end
+        disableESP()
+        for _, data in pairs(lootBillboards) do if data.bb then data.bb:Destroy() end end
+        table.clear(lootBillboards)
+        if screenGui then screenGui:Destroy() end
+        if jumpLockConnection then jumpLockConnection:Disconnect() end
+        if speedHeartbeatConn then speedHeartbeatConn:Disconnect() end
+        if speedPropertyListener then speedPropertyListener:Disconnect() end
         print("[System] Cleanup complete.")
     end
 
     _G.UnloadLinhScript = cleanupAll
 
     print("=" .. string.rep("=", 60))
-    print("Linh Script Premium v10.7.25 - ABSOLUTE FINAL Loaded!")
-    print("Features: ESP | Jump | Loot ESP | Xray | Fly | Bring Part | Physics Sandbox")
-    print("NEW: Anchored Toggle - Lock/Unlock selected part")
-    print("Hotkey: Right Shift (Menu) | B (Fly)")
+    print("Linh Script Premium v10.7.25 - PC ULTIMATE EDITION (FINAL FIX) Loaded!")
+    print("Hotkey: Right Shift / INSERT (Menu) | B (Fly)")
+    print("Fly Modes: Physics / CFrame / Humanoid")
     print("To unload: _G.UnloadLinhScript()")
     print("=" .. string.rep("=", 60))
 end)()
